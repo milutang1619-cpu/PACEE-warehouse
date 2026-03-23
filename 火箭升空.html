@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>火箭与塔架 - 逃逸几何学 (模拟任务)</title>
+    <!-- 引入 Tailwind CSS 用于辅助快速排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Inter 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <style>
+        /* ==========================================
+           全局重置与核心舞台基础设置
+           ========================================== */
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #050505; 
+            font-family: 'Inter', sans-serif !important; 
+            color: #FFFFFF;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* 核心舞台 1920x1080 */
+        #stage {
+            position: relative;
+            width: 1920px;
+            height: 1080px;
+            /* 背景渐变：深海蓝 -> 深空黑 */
+            background: radial-gradient(circle at center, #1A237E 0%, #050505 100%);
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            overflow: hidden;
+            flex-shrink: 0;
+            transform-origin: center center;
+        }
+
+        /* 全局背景网格与交点菱形点缀 */
+        #stage::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><line x1='40' y1='0' x2='40' y2='80' stroke='rgba(255,255,255,0.05)' stroke-width='1'/><line x1='0' y1='40' x2='80' y2='40' stroke='rgba(255,255,255,0.05)' stroke-width='1'/><polygon points='40,37 43,40 40,43 37,40' fill='rgba(34,211,238,0.3)'/></svg>");
+            background-size: 80px 80px;
+            z-index: 0;
+            pointer-events: none;
+            mask-image: radial-gradient(circle at center, rgba(0,0,0,1) 30%, rgba(0,0,0,0.05) 100%);
+            -webkit-mask-image: radial-gradient(circle at center, rgba(0,0,0,1) 30%, rgba(0,0,0,0.05) 100%);
+        }
+
+        /* --- A区：品牌区 --- */
+        #brand-zone { position: absolute; top: 24px; left: 48px; z-index: 50; }
+        #brand-zone h1 {
+            margin: 0; font-size: 48px; font-weight: 800; letter-spacing: -1px;
+            background: linear-gradient(135deg, #00AEEF 0%, #2A4B9A 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(0, 174, 239, 0.3);
+        }
+        #brand-zone .subtitle { margin-top: 4px; font-size: 18px; color: #4DD0E1; font-weight: 500; letter-spacing: 2px; }
+
+        /* --- B区：导航区 --- */
+        #nav-zone { position: absolute; top: 140px; left: 48px; display: flex; flex-direction: column; gap: 12px; z-index: 50; width: 180px; }
+        .mode-btn {
+            padding: 12px 16px; background: rgba(26, 35, 126, 0.6); border: 2px solid #2A4B9A; color: #4DD0E1;
+            font-size: 18px; font-weight: 600; text-align: left; cursor: pointer; transition: all 0.3s ease;
+            display: flex; align-items: center; gap: 12px; border-radius: 0; overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+        }
+        .mode-btn:hover { background: rgba(42, 75, 154, 0.8); color: #FFFFFF; border-color: #00AEEF; }
+        .mode-btn.active {
+            background: linear-gradient(90deg, rgba(0,174,239,0.15) 0%, rgba(0,174,239,0) 100%);
+            border-left: 8px solid #00AEEF; color: #00AEEF; font-weight: bold;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        }
+
+        /* --- C区：主视窗 --- */
+        #viewport-zone {
+            position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+            width: 1420px; height: 800px; background: #050505; border: 2px solid #2A4B9A;
+            box-shadow: 0 0 60px rgba(0,0,0,0.6) inset, 0 20px 50px rgba(0,0,0,0.5); 
+            z-index: 10; overflow: hidden;
+        }
+        .corner-marker { position: absolute; width: 20px; height: 20px; border-color: #00AEEF; border-style: solid; pointer-events: none; z-index: 20; opacity: 0.5; }
+        .tl { top: 0; left: 0; border-width: 4px 0 0 4px; }
+        .tr { top: 0; right: 0; border-width: 4px 4px 0 0; }
+        .bl { bottom: 0; left: 0; border-width: 0 0 4px 4px; }
+        .br { bottom: 0; right: 0; border-width: 0 4px 4px 0; }
+
+        /* 状态信息区 (放置在 C区 右上角) */
+        #status-zone { position: absolute; top: 20px; right: 24px; z-index: 50; text-align: right; pointer-events: none; }
+        .status-main { font-size: 32px; font-weight: 800; color: #FFFFFF; margin-bottom: 4px; text-shadow: 0 0 20px rgba(0,0,0,0.8); }
+        .status-sub { font-size: 18px; font-weight: 500; color: #4DD0E1; }
+        .status-dot { width: 14px; height: 14px; border-radius: 50%; background: #00838F; margin-right: 12px; display: inline-block; vertical-align: middle; margin-top: -4px; }
+        .status-dot.idle { background: #00838F; box-shadow: 0 0 10px #00838F; } 
+        .status-dot.running { background: #FFC107; box-shadow: 0 0 10px #FFC107; } 
+        .status-dot.success { background: #00E676; box-shadow: 0 0 10px #00E676; } 
+        .status-dot.fail { background: #FF5252; box-shadow: 0 0 10px #FF5252; } 
+
+        /* --- D区：工作区 --- */
+        #control-deck {
+            position: absolute; bottom: 0; left: 0; width: 1920px; height: 220px;
+            background: transparent; border-top: none; 
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            z-index: 5; padding: 0 48px; box-sizing: border-box;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+
+        /* 极浅弧线仪表盘组 */
+        .slider-group {
+            display: flex; flex-direction: row; justify-content: center; align-items: flex-end;
+            width: 650px; flex-shrink: 0; 
+            position: absolute; left: 50%; transform: translateX(-50%); bottom: 0;
+        }
+        
+        .arc-container { position: relative; width: 600px; height: 160px; touch-action: none; transition: all 0.3s ease; }
+        .arc-container svg { width: 100%; height: 100%; overflow: visible; }
+        
+        .arc-container.disabled-interaction { pointer-events: none; }
+        .arc-container.locked { opacity: 0.3; filter: grayscale(1); }
+        .arc-container.grey-out { opacity: 0.3; filter: grayscale(1); }
+        
+        .rs-bg { fill: none; stroke: rgba(224, 247, 250, 0.15); stroke-width: 2; stroke-linecap: butt; }
+        .rs-hit { fill: none; stroke: transparent; stroke-width: 60; cursor: pointer; pointer-events: stroke; }
+
+        .rs-fill-angle {
+            fill: none; stroke: #FF5252; stroke-width: 4; stroke-linecap: butt;
+            filter: drop-shadow(0 0 6px rgba(255, 82, 82, 0.6));
+            transition: stroke-dashoffset 0.1s linear;
+        }
+        .rs-fill-speed {
+            fill: none; stroke: #00AEEF; stroke-width: 4; stroke-linecap: butt;
+            filter: drop-shadow(0 0 6px rgba(0, 174, 239, 0.6));
+            transition: stroke-dashoffset 0.1s linear;
+        }
+
+        .rs-thumb {
+            position: absolute; width: 32px; height: 32px; border-radius: 50%;
+            pointer-events: none; top: 0; left: 0; transform: translate(-50%, -50%);
+            transition: left 0.1s linear, top 0.1s linear; z-index: 10;
+        }
+        #thumb-angle { border: 4px solid #FF5252; background: rgba(255, 82, 82, 0.5); box-shadow: 0 0 10px rgba(255, 82, 82, 0.5); }
+        #thumb-speed { border: 4px solid #00AEEF; background: rgba(0, 174, 239, 0.5); box-shadow: 0 0 10px rgba(0, 174, 239, 0.5); }
+
+        .arc-labels {
+            position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 60px; text-align: center; pointer-events: none;
+        }
+        .c-label { font-size: 18px; font-weight: 700; letter-spacing: 2px; }
+        .c-label span { 
+            display: block; font-size: 32px; font-weight: 400; 
+            font-family: 'Inter', sans-serif; font-variant-numeric: tabular-nums;
+            letter-spacing: 2px; margin-top: 6px; line-height: 1; 
+            text-shadow: 0 0 15px rgba(255,255,255,0.2);
+        }
+
+        /* 按钮通用样式 */
+        .circle-btn {
+            position: relative; border-radius: 50%;
+            background: rgba(26, 35, 126, 0.9); border: 2px solid rgba(42, 75, 154, 0.8);
+            color: #4DD0E1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none; flex-shrink: 0; backdrop-filter: blur(8px);
+            font-family: 'Inter', sans-serif; box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+        }
+        
+        .circle-btn::after {
+            content: ''; position: absolute; top: -4px; left: -4px; right: -4px; bottom: -4px; 
+            border-radius: 50%; border: 4px solid transparent; pointer-events: none; transition: all 0.2s ease; z-index: 10;
+        }
+        
+        .circle-btn:active { transform: translateY(-2px) !important; }
+        .circle-btn.locked { opacity: 0.3; pointer-events: none; filter: grayscale(1); }
+
+        /* r=100px的小型圆形按钮 (常规功能) */
+        .circle-btn.small {
+            font-weight: 600; font-size: 14px;
+            width: 100px; height: 100px; 
+        }
+        .circle-btn.small .icon { font-size: 28px; margin-bottom: 4px; display: block; }
+        .circle-btn.small:hover {
+            background: #2A4B9A; color: #FFFFFF; transform: translateY(-4px); 
+            box-shadow: 0 15px 35px rgba(0,0,0,0.8); border-color: #00AEEF;
+        }
+        .circle-btn.small:hover::after { border-color: #00AEEF; }
+        
+        /* 巨大点火按钮的特殊 Danger 样式 (套用 small red) */
+        .circle-btn.small.red {
+            border-color: #FF5252; color: #FF5252; background: rgba(26, 35, 126, 0.9);
+        }
+        .circle-btn.small.red:hover {
+            background: #E91E63; color: #FFFFFF; transform: translateY(-4px); 
+            box-shadow: 0 15px 35px rgba(255, 82, 82, 0.6); border-color: #FF5252;
+        }
+        .circle-btn.small.red:hover::after { border-color: #FF5252; background-color: rgba(255, 82, 82, 0.15); }
+
+        /* 视角切换按钮 (统一为 r=100px) */
+        .circle-btn.mini {
+            font-weight: 600; font-size: 14px; letter-spacing: 1px;
+            width: 100px; height: 100px;
+        }
+        .circle-btn.mini .icon { font-size: 28px; margin-bottom: 4px; display: block; }
+        .circle-btn.mini:hover {
+            background: #2A4B9A; color: #FFFFFF; transform: translateY(-4px); 
+            border-color: #00AEEF;
+        }
+        .circle-btn.mini:hover::after { border-color: #00AEEF; }
+        
+        /* 视角切换按钮的激活状态 */
+        .circle-btn.mini.active {
+            background: rgba(0, 174, 239, 0.15); color: #00AEEF; border-color: transparent;
+            box-shadow: 0 0 25px rgba(0, 174, 239, 0.5);
+        }
+        .circle-btn.mini.active::after { border-color: #00AEEF; }
+
+        /* --- E区：任务简报/结果弹窗 --- */
+        .modal-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 5, 5, 0.75); backdrop-filter: blur(12px);
+            z-index: 999; display: flex; justify-content: center; align-items: center;
+            opacity: 1; transition: opacity 0.5s ease; pointer-events: auto;
+        }
+        .modal-overlay.hidden { opacity: 0; pointer-events: none; }
+        .modal-content {
+            width: 800px; background: rgba(26, 35, 126, 0.85); border: 2px solid #2A4B9A;
+            padding: 64px 56px; box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+            transform: translateY(0) scale(1); 
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+            border-top: 8px solid #00AEEF;
+        }
+        .modal-overlay.hidden .modal-content { transform: translateY(20px) scale(0.95); }
+        .modal-title { font-size: 40px; color: #FFFFFF; margin-bottom: 24px; font-weight: 900; letter-spacing: 2px; }
+        .modal-desc { font-size: 20px; color: #E0F7FA; line-height: 1.8; margin-bottom: 40px; font-weight: 500; }
+        .modal-desc strong { color: #00AEEF; font-weight: 700; }
+        .modal-btn {
+            background: rgba(0, 174, 239, 0.1); border: 2px solid #00AEEF; color: #00AEEF;
+            padding: 16px 48px; font-size: 20px; font-weight: 700; cursor: pointer;
+            transition: all 0.3s; font-family: 'Inter', sans-serif; letter-spacing: 2px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+        }
+        .modal-btn:hover { background: rgba(0, 174, 239, 0.25); box-shadow: 0 12px 25px rgba(0, 174, 239, 0.6); color: #FFFFFF; }
+
+        /* --- 交互动效：拖拽暗示呼吸光晕 --- */
+        @keyframes hint-pulse-angle {
+            0% { box-shadow: 0 0 10px rgba(255, 82, 82, 0.5), 0 0 0 0 rgba(255, 82, 82, 0.8); }
+            70% { box-shadow: 0 0 10px rgba(255, 82, 82, 0.5), 0 0 0 20px rgba(255, 82, 82, 0); }
+            100% { box-shadow: 0 0 10px rgba(255, 82, 82, 0.5), 0 0 0 0 rgba(255, 82, 82, 0); }
+        }
+        @keyframes hint-pulse-speed {
+            0% { box-shadow: 0 0 10px rgba(0, 174, 239, 0.5), 0 0 0 0 rgba(0, 174, 239, 0.8); }
+            70% { box-shadow: 0 0 10px rgba(0, 174, 239, 0.5), 0 0 0 20px rgba(0, 174, 239, 0); }
+            100% { box-shadow: 0 0 10px rgba(0, 174, 239, 0.5), 0 0 0 0 rgba(0, 174, 239, 0); }
+        }
+        @keyframes hint-pulse-btn {
+            0% { box-shadow: 0 12px 30px rgba(0,0,0,0.6), 0 0 0 0 rgba(0, 174, 239, 0.8); }
+            70% { box-shadow: 0 12px 30px rgba(0,0,0,0.6), 0 0 0 20px rgba(0, 174, 239, 0); }
+            100% { box-shadow: 0 12px 30px rgba(0,0,0,0.6), 0 0 0 0 rgba(0, 174, 239, 0); }
+        }
+        .hint-anim-angle { animation: hint-pulse-angle 1.5s infinite; }
+        .hint-anim-speed { animation: hint-pulse-speed 1.5s infinite; }
+        .hint-anim-btn { animation: hint-pulse-btn 1.5s infinite; }
+
+    </style>
+</head>
+<body>
+
+    <div id="stage">
+        <!-- A区：品牌 -->
+        <div id="brand-zone">
+            <h1>逃逸几何学</h1>
+            <div class="subtitle">零秒脱落模拟分析终端</div>
+        </div>
+
+        <!-- B区：导航 -->
+        <div id="nav-zone">
+            <button class="mode-btn active" id="btn-observe" onclick="switchAppMode('observe')"><span>👀</span> 观察模式</button>
+            <button class="mode-btn" id="btn-game" onclick="switchAppMode('game')"><span>🎮</span> 游戏模式</button>
+            <div style="height: 1px; background: rgba(42, 75, 154, 0.8); margin: 8px 0;"></div>
+            <button class="mode-btn" onclick="showBriefing()"><span>ℹ️</span> 任务简报</button>
+        </div>
+
+        <!-- C区：主视窗 -->
+        <div id="viewport-zone">
+            <div class="corner-marker tl"></div><div class="corner-marker tr"></div>
+            <div class="corner-marker bl"></div><div class="corner-marker br"></div>
+            
+            <div id="status-zone">
+                <div id="status-text" class="status-main"><span id="status-dot" class="status-dot idle"></span>系统待机</div>
+                <div id="status-desc" class="status-sub">观察模式：点击自动演示，观察标准脱落时序</div>
+            </div>
+        </div>
+
+        <!-- D区：工作区 (Control Deck) -->
+        <div id="control-deck">
+            
+            <!-- 左侧动作组与视角组 (间距 24px) -->
+            <div class="left-controls" style="flex: 1; display: flex; justify-content: flex-start; align-items: center; gap: 24px;">
+                
+                <!-- 动作按键占位区 (100px固定) -->
+                <div style="position: relative; width: 100px; height: 100px;">
+                    <div class="circle-btn small" id="autoDemoBtn" style="position: absolute; top:0; left:0; width: 100%; height: 100%;">
+                        <span class="icon">▶</span> 自动演示
+                    </div>
+                    <div class="circle-btn small red" id="igniteBtn" style="position: absolute; top:0; left:0; width: 100%; height: 100%; display: none;">
+                        <span class="icon">🚀</span> 点火发射
+                    </div>
+                </div>
+
+                <!-- 视角切换器左半部：斜视、俯视 -->
+                <div class="circle-btn mini view-btn active" id="view-iso" onclick="setCameraView('iso')">
+                    <span class="icon">📐</span> 斜视
+                </div>
+                <div class="circle-btn mini view-btn" id="view-top" onclick="setCameraView('top')">
+                    <span class="icon">🚁</span> 俯视
+                </div>
+            </div>
+
+            <!-- 中间：浅弧仪表盘 -->
+            <div class="slider-group">
+                <div class="arc-container" id="arc-sliders">
+                    <svg viewBox="0 0 600 160">
+                        <circle cx="300" cy="600" r="600" class="rs-bg" transform="rotate(225 300 600)" stroke-dasharray="942.48 4000" />
+                        <circle cx="300" cy="600" r="600" class="rs-fill-angle" id="fill-angle" />
+                        <circle cx="300" cy="600" r="600" class="rs-hit" id="hit-angle" transform="rotate(225 300 600)" stroke-dasharray="942.48 4000" />
+
+                        <circle cx="300" cy="600" r="540" class="rs-bg" transform="rotate(225 300 600)" stroke-dasharray="848.23 4000" />
+                        <circle cx="300" cy="600" r="540" class="rs-fill-speed" id="fill-speed" />
+                        <circle cx="300" cy="600" r="540" class="rs-hit" id="hit-speed" transform="rotate(225 300 600)" stroke-dasharray="848.23 4000" />
+                        
+                        <g transform="translate(300, 600)">
+                            <circle cx="0" cy="-600" r="3" fill="#050505" stroke="#FF5252" stroke-width="1.5" transform="rotate(-27.71)" />
+                            <circle cx="0" cy="-600" r="3" fill="#050505" stroke="#FF5252" stroke-width="1.5" />
+                            <circle cx="0" cy="-600" r="3" fill="#050505" stroke="#FF5252" stroke-width="1.5" transform="rotate(27.71)" />
+                        </g>
+
+                        <g transform="translate(300, 600)">
+                            <circle cx="0" cy="-540" r="3" fill="#050505" stroke="#00AEEF" stroke-width="1.5" transform="rotate(-27.45)" />
+                            <circle cx="0" cy="-540" r="3" fill="#050505" stroke="#00AEEF" stroke-width="1.5" />
+                            <circle cx="0" cy="-540" r="3" fill="#050505" stroke="#00AEEF" stroke-width="1.5" transform="rotate(27.45)" />
+                        </g>
+                    </svg>
+
+                    <div class="rs-thumb" id="thumb-angle"></div>
+                    <div class="rs-thumb" id="thumb-speed"></div>
+
+                    <div class="arc-labels">
+                        <div class="c-label" style="color:#FF5252">目标开角<span id="val-angle" style="color:#FF5252">0°</span></div>
+                        <div class="c-label" style="color:#00AEEF">撤离速度<span id="val-speed" style="color:#00AEEF">极速</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧动作组与视角组 (间距 24px) -->
+            <div class="right-controls" style="flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 24px;">
+                <!-- 视角切换器右半部：正面、侧面 -->
+                <div class="circle-btn mini view-btn" id="view-front" onclick="setCameraView('front')">
+                    <span class="icon">🔲</span> 正面
+                </div>
+                <div class="circle-btn mini view-btn" id="view-side" onclick="setCameraView('side')">
+                    <span class="icon">👁️</span> 侧面
+                </div>
+                
+                <div class="circle-btn small" id="resetBtn">
+                    <span class="icon">↻</span> 重置场景
+                </div>
+            </div>
+
+        </div>
+
+        <!-- E区：任务简报 / 结果弹窗 -->
+        <div id="mission-briefing" class="modal-overlay hidden">
+            <div class="modal-content" id="modal-box">
+                <div id="modal-title" class="modal-title">任务简报：零秒脱落</div>
+                <div id="modal-desc" class="modal-desc">
+                    指挥官，火箭起飞就像一场必须精确到毫秒的分手。在点火前 0 秒，庞大的机械臂必须瞬间脱落。<br><br>
+                    根据发射场安全守则，摆杆撤离的开角<strong>必须达到 30°</strong> 才能避开火箭主体免受碰撞；而<strong>必须达到 45°</strong> 才能完全贴合塔架，避免被高温尾焰烧毁。<br><br>
+                    请在下方控制台设定合理的<strong>开角与速度</strong>，确保发射安全！
+                </div>
+                <button id="modal-btn" class="modal-btn" onclick="dismissModal()">[ 接收任务 / 进入控制台 ]</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- 0. 屏幕缩放适配 (1920x1080 核心舞台) ---
+        function fitStage() {
+            const stage = document.getElementById('stage');
+            const targetW = 1920, targetH = 1080;
+            const scale = Math.min(window.innerWidth / targetW, window.innerHeight / targetH);
+            stage.style.transform = `scale(${scale})`;
+        }
+        window.addEventListener('resize', fitStage);
+        fitStage(); 
+
+        // --- 全局状态机 ---
+        let appMode = 'observe'; 
+        let gameState = 'IDLE'; 
+        let currentArmAngle = 0; let targetArmAngle = -90; let armOpenSpeed = 0; 
+        let modalShown = false; 
+        
+        let gameTimeout = null; 
+        let ignitionFrames = 0; 
+        let isDemoPaused = false; 
+
+        let hasClickedDemo = false; 
+        let hasDraggedSliders = false;
+
+        // --- UI 弹窗逻辑 ---
+        const overlay = document.getElementById('mission-briefing');
+        const modalBox = document.getElementById('modal-box');
+        const mTitle = document.getElementById('modal-title');
+        const mDesc = document.getElementById('modal-desc');
+        const mBtn = document.getElementById('modal-btn');
+        const statusText = document.getElementById('status-text'); 
+        const statusDesc = document.getElementById('status-desc');
+
+        function dismissModal() { 
+            overlay.classList.add('hidden'); 
+            updateUIHints();
+        }
+
+        function showBriefing() {
+            modalBox.style.borderTopColor = '#00AEEF';
+            mBtn.style.borderColor = '#00AEEF'; mBtn.style.color = '#00AEEF'; mBtn.style.backgroundColor = 'rgba(0, 174, 239, 0.1)';
+            mTitle.innerText = "任务简报：零秒脱落";
+            mDesc.innerHTML = "指挥官，火箭起飞就像一场必须精确到毫秒的分手。<br><br>根据发射场安全守则，摆杆撤离的开角<strong>必须达到 30°</strong> 才能避开火箭主体免受碰撞；而<strong>必须达到 45°</strong> 才能完全贴合塔架，避免被高温尾焰烧毁。<br><br>请在下方设定合理的<strong>开角与速度</strong>，确保发射安全！";
+            mBtn.innerText = "[ 接收任务 / 进入控制台 ]";
+            overlay.classList.remove('hidden');
+            updateUIHints();
+        }
+
+        function showResult(title, desc, type) {
+            let color = '#00AEEF';
+            if (type === 'fail') color = '#FF5252';
+            else if (type === 'warn') color = '#FFC107';
+            else if (type === 'success') color = '#00E676';
+
+            modalBox.style.borderTopColor = color;
+            mBtn.style.borderColor = color; mBtn.style.color = color; mBtn.style.backgroundColor = `${color}1A`; 
+            
+            mTitle.innerText = title;
+            mDesc.innerHTML = desc;
+            mBtn.innerText = "[ 查看现场录像 ]";
+            overlay.classList.remove('hidden');
+            updateUIHints();
+        }
+
+        function updateUIStatus(state, mainText, subText, dotClass) {
+            statusText.innerHTML = `<span class="status-dot ${dotClass}"></span>${mainText}`;
+            statusDesc.innerText = subText;
+        }
+
+        function updateUIHints() {
+            const btn = document.getElementById('autoDemoBtn');
+            const thumbAngle = document.getElementById('thumb-angle');
+            const thumbSpeed = document.getElementById('thumb-speed');
+            
+            // 如果弹窗处于开启状态，强行隐藏光晕，避免分散注意力，直到弹窗关闭后再显示
+            if (!overlay.classList.contains('hidden')) {
+                btn.classList.remove('hint-anim-btn');
+                thumbAngle.classList.remove('hint-anim-angle');
+                thumbSpeed.classList.remove('hint-anim-speed');
+                return;
+            }
+
+            if (appMode === 'observe') {
+                thumbAngle.classList.remove('hint-anim-angle');
+                thumbSpeed.classList.remove('hint-anim-speed');
+                if (!hasClickedDemo) btn.classList.add('hint-anim-btn');
+                else btn.classList.remove('hint-anim-btn');
+            } else if (appMode === 'game') {
+                btn.classList.remove('hint-anim-btn');
+                if (!hasDraggedSliders) {
+                    thumbAngle.classList.add('hint-anim-angle');
+                    thumbSpeed.classList.add('hint-anim-speed');
+                } else {
+                    thumbAngle.classList.remove('hint-anim-angle');
+                    thumbSpeed.classList.remove('hint-anim-speed');
+                }
+            }
+        }
+
+        // --- 1. 基础场景设置 ---
+        const viewport = document.getElementById('viewport-zone');
+        const W = 1420; const H = 800;
+        const scene = new THREE.Scene();
+
+        const aspect = W / H;
+        const d = 40; 
+        const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+        
+        // 配合焦点上移，保持摄像机的相对俯仰角不变 (40 + 70 = 110)
+        camera.position.set(100, 110, 100); 
+        camera.lookAt(0, 40, 0); 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(W, H);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true; 
+        viewport.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        // 焦点精准上提至 40，使底座地面(y=0)完美贴合 800px 视窗的最底部！
+        controls.target.set(0, 40, 0); 
+        controls.enableDamping = true; 
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.1;
+
+        // 如果用户手动用鼠标拖拽了画面，打断预设的镜头平滑移动动画
+        controls.addEventListener('start', () => {
+            isCameraMoving = false;
+            controls.enabled = true;
+            document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+        });
+
+        // --- 1.5 镜头视角切换系统 ---
+        let targetCameraPos = new THREE.Vector3(100, 110, 100);
+        let isCameraMoving = false;
+
+        window.setCameraView = function(view) {
+            document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('view-' + view).classList.add('active');
+            
+            // 设定不同视角的专属坐标（同步更新基准高度为 40）
+            if (view === 'iso') targetCameraPos.set(100, 110, 100); // 默认斜视
+            else if (view === 'front') targetCameraPos.set(0, 40, 150); // 正面 (观察摆杆横向避让)
+            else if (view === 'side') targetCameraPos.set(150, 40, 0);  // 侧面 (观察塔架相对位置)
+            else if (view === 'top') targetCameraPos.set(0.1, 150, 0.1); // 俯视 (观察尾翼间隙)
+            
+            isCameraMoving = true;
+        }
+
+        // --- 2. 灯光与底座环境 ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 100, 50);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.left = -50; dirLight.shadow.camera.right = 50;
+        dirLight.shadow.camera.top = 50; dirLight.shadow.camera.bottom = -50;
+        scene.add(dirLight);
+
+        // 更新配色以匹配深空蓝主题 (0x050505 搭配 0x2A4B9A)
+        const gridHelper = new THREE.GridHelper(100, 20, 0x2A4B9A, 0x050505);
+        scene.add(gridHelper);
+        const planeGeo = new THREE.PlaneGeometry(100, 100);
+        const planeMat = new THREE.MeshLambertMaterial({ color: 0x050505 });
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        plane.rotation.x = -Math.PI / 2; plane.receiveShadow = true;
+        scene.add(plane);
+
+        const towerPadGeo = new THREE.BoxGeometry(16, 6, 28);
+        const padMat = new THREE.MeshLambertMaterial({ color: 0x1A237E });
+        const towerPad = new THREE.Mesh(towerPadGeo, padMat);
+        towerPad.position.set(-19, 3, 0); towerPad.receiveShadow = true; towerPad.castShadow = true;
+        scene.add(towerPad);
+
+        const mlpGeo = new THREE.BoxGeometry(18, 6, 28);
+        const mlpMat = new THREE.MeshLambertMaterial({ color: 0x2A4B9A });
+        const mlp = new THREE.Mesh(mlpGeo, mlpMat);
+        mlp.position.set(0, 3, 0); mlp.receiveShadow = true; mlp.castShadow = true;
+        scene.add(mlp);
+
+        const holeGeo = new THREE.BoxGeometry(14, 6.2, 14);
+        const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const hole = new THREE.Mesh(holeGeo, holeMat);
+        hole.position.set(0, 3, 0); scene.add(hole);
+
+        // --- 3. 几何体构建 ---
+        function createFlagTexture() {
+            const canvas = document.createElement('canvas'); canvas.width = 300; canvas.height = 200;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#de2910'; ctx.fillRect(0, 0, 300, 200);
+            ctx.fillStyle = '#ffde00'; 
+            function drawStar(cx, cy, spikes, outerRadius, innerRadius) {
+                let rot = Math.PI / 2 * 3; let x = cx, y = cy, step = Math.PI / spikes;
+                ctx.beginPath(); ctx.moveTo(cx, cy - outerRadius);
+                for (let i = 0; i < spikes; i++) {
+                    x = cx + Math.cos(rot) * outerRadius; y = cy + Math.sin(rot) * outerRadius; ctx.lineTo(x, y); rot += step;
+                    x = cx + Math.cos(rot) * innerRadius; y = cy + Math.sin(rot) * innerRadius; ctx.lineTo(x, y); rot += step;
+                }
+                ctx.lineTo(cx, cy - outerRadius); ctx.closePath(); ctx.fill();
+            }
+            const s = 300 / 288; drawStar(48*s, 48*s, 5, 28*s, 11*s); 
+            const sr = 9*s; const si = 3.5*s;
+            ctx.save(); ctx.translate(96*s, 19*s); ctx.rotate(Math.atan2(19-48, 96-48) + Math.PI/2); drawStar(0, 0, 5, sr, si); ctx.restore();
+            ctx.save(); ctx.translate(115*s, 48*s); ctx.rotate(Math.atan2(48-48, 115-48) + Math.PI/2); drawStar(0, 0, 5, sr, si); ctx.restore();
+            ctx.save(); ctx.translate(115*s, 86*s); ctx.rotate(Math.atan2(86-48, 115-48) + Math.PI/2); drawStar(0, 0, 5, sr, si); ctx.restore();
+            ctx.save(); ctx.translate(96*s, 115*s); ctx.rotate(Math.atan2(115-48, 96-48) + Math.PI/2); drawStar(0, 0, 5, sr, si); ctx.restore();
+            const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 16; return tex;
+        }
+
+        function createVonKarmanGeometry(R, L, segments) {
+            const points = [];
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments; const x = t * L;
+                if (t === 0) points.push(new THREE.Vector2(0, L)); 
+                else if (t === 1) points.push(new THREE.Vector2(R, 0)); 
+                else {
+                    const theta = Math.acos(1 - (2 * x) / L);
+                    const r = (R / Math.sqrt(Math.PI)) * Math.sqrt(theta - 0.5 * Math.sin(2 * theta));
+                    points.push(new THREE.Vector2(r, (1 - t) * L));
+                }
+            }
+            return new THREE.LatheGeometry(points, 32);
+        }
+
+        const flamesList = []; 
+        function createEngineFire(radius, height) {
+            const group = new THREE.Group();
+            const outerGeo = new THREE.ConeGeometry(radius, height, 16); outerGeo.translate(0, -height/2, 0);
+            const outerMat = new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
+            const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+            const innerGeo = new THREE.ConeGeometry(radius * 0.6, height * 0.7, 16); innerGeo.translate(0, -height*0.35, 0);
+            const innerMat = new THREE.MeshBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+            const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+            group.add(outerMesh); group.add(innerMesh); group.visible = false; 
+            flamesList.push({ group: group, outer: outerMesh, inner: innerMesh });
+            return group;
+        }
+
+        // --- 4. 火箭组合 ---
+        const rocketWrapper = new THREE.Group(); 
+        const rocketGroup = new THREE.Group();
+        const whiteMat = new THREE.MeshLambertMaterial({ color: 0xf8fafc });
+        const redMat = new THREE.MeshLambertMaterial({ color: 0xdc2626 });
+        const darkMat = new THREE.MeshLambertMaterial({ color: 0x1A237E });
+        const rocketBaseY = 6; 
+
+        const coreGeo = new THREE.CylinderGeometry(2.5, 2.5, 45, 32);
+        const core = new THREE.Mesh(coreGeo, whiteMat);
+        core.position.y = rocketBaseY + 22.5 + 5; core.castShadow = true; rocketGroup.add(core);
+
+        const flagTex = createFlagTexture(); const flagMat = new THREE.MeshLambertMaterial({ map: flagTex });
+        const flagGeo = new THREE.CylinderGeometry(2.52, 2.52, 2.5, 16, 1, true, 0, 1.5);
+        const flagMesh = new THREE.Mesh(flagGeo, flagMat);
+        flagMesh.position.y = rocketBaseY + 41; flagMesh.rotation.y = Math.PI / 4 - 0.75; rocketGroup.add(flagMesh);
+
+        const fairingGeo = createVonKarmanGeometry(2.5, 12, 30);
+        const fairing = new THREE.Mesh(fairingGeo, whiteMat);
+        fairing.position.y = rocketBaseY + 50; fairing.castShadow = true; rocketGroup.add(fairing);
+
+        const finShape = new THREE.Shape();
+        finShape.moveTo(0, 0); finShape.lineTo(1.4, -1.0); finShape.lineTo(1.4, -3.0); finShape.lineTo(0, -3.0);
+        const finGeo = new THREE.ExtrudeGeometry(finShape, { depth: 0.1, bevelEnabled: false }); finGeo.translate(0, 0, -0.05);
+
+        const createBooster = (bx, bz) => {
+            const bGroup = new THREE.Group();
+            const bBody = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 22.5, 32), whiteMat);
+            bBody.position.y = 11.25 + 5; bBody.castShadow = true;
+            
+            const noseGeo = createVonKarmanGeometry(1.6, 6, 20);
+            const posAttr = noseGeo.attributes.position;
+            const shiftVec = new THREE.Vector3(-bx, 0, -bz).normalize(); const shiftMax = 1.4; 
+            for (let i = 0; i < posAttr.count; i++) {
+                let px = posAttr.getX(i), py = posAttr.getY(i), pz = posAttr.getZ(i); const ratio = py / 6; 
+                posAttr.setXYZ(i, px + shiftVec.x * shiftMax * ratio, py, pz + shiftVec.z * shiftMax * ratio);
+            }
+            noseGeo.computeVertexNormals(); 
+            
+            const bNose = new THREE.Mesh(noseGeo, whiteMat); bNose.position.y = 27.5; bNose.castShadow = true;
+            const bNozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.4, 3, 16), darkMat); bNozzle.position.y = 3.5;
+            
+            const boosterFire = createEngineFire(1.4, 8); boosterFire.position.y = 2.5; 
+
+            const finGroup = new THREE.Group(); finGroup.rotation.y = Math.atan2(-bz, bx); 
+            const fin = new THREE.Mesh(finGeo, whiteMat); fin.position.set(1.5, 7.5, 0); fin.castShadow = true; finGroup.add(fin);
+            bGroup.add(finGroup);
+            
+            bGroup.add(bBody); bGroup.add(bNose); bGroup.add(bNozzle); bGroup.add(boosterFire); 
+            bGroup.position.set(bx, rocketBaseY, bz); return bGroup;
+        };
+        
+        rocketGroup.add(createBooster(-4.2, 0)); rocketGroup.add(createBooster(4.2, 0)); 
+        rocketGroup.add(createBooster(0, -4.2)); rocketGroup.add(createBooster(0, 4.2)); 
+
+        const coreNozzle = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 2.2, 4, 32), darkMat);
+        coreNozzle.position.y = rocketBaseY + 3; rocketGroup.add(coreNozzle);
+
+        const coreFire = createEngineFire(2.0, 10); coreFire.position.y = rocketBaseY + 1.5; rocketGroup.add(coreFire);
+
+        const stripeGeo = new THREE.CylinderGeometry(2.52, 2.52, 1.5, 32);
+        const stripe1 = new THREE.Mesh(stripeGeo, redMat); stripe1.position.y = rocketBaseY + 18; rocketGroup.add(stripe1);
+
+        rocketWrapper.add(rocketGroup); scene.add(rocketWrapper); 
+
+        // --- 4.5 静态底座压紧机构 ---
+        const staticBaseGroup = new THREE.Group();
+        const clampBaseMat = new THREE.MeshLambertMaterial({ color: 0xfab005 }); 
+        const createHoldDownClamp = (x, z) => {
+            const clampGroup = new THREE.Group();
+            const boxWidth = 2.4, boxHeight = 5.5, boxDepth = 2.8;
+            const boxGeo = new THREE.BoxGeometry(boxWidth, boxHeight, boxDepth);
+            const box = new THREE.Mesh(boxGeo, clampBaseMat); box.position.y = boxHeight / 2; box.castShadow = true; box.receiveShadow = true; clampGroup.add(box);
+
+            const topGeo = new THREE.CylinderGeometry(boxWidth/2, boxWidth/2, boxDepth, 32);
+            const topMesh = new THREE.Mesh(topGeo, clampBaseMat); topMesh.rotation.x = Math.PI / 2; topMesh.position.y = boxHeight; topMesh.castShadow = true; topMesh.receiveShadow = true; clampGroup.add(topMesh);
+
+            const detailGeo = new THREE.BoxGeometry(0.6, 2.0, 1.0); const detailMat = new THREE.MeshLambertMaterial({ color: 0xd97706 }); 
+            const detailRight = new THREE.Mesh(detailGeo, detailMat); detailRight.position.set(boxWidth/2 + 0.1, boxHeight - 1, 0); clampGroup.add(detailRight);
+            const detailLeft = new THREE.Mesh(detailGeo, detailMat); detailLeft.position.set(-(boxWidth/2 + 0.1), boxHeight - 1, 0); clampGroup.add(detailLeft);
+
+            clampGroup.position.set(x, rocketBaseY, z); clampGroup.lookAt(0, rocketBaseY, 0); return clampGroup;
+        }
+        staticBaseGroup.add(createHoldDownClamp(3.5, 3.5)); staticBaseGroup.add(createHoldDownClamp(-3.5, 3.5));
+        staticBaseGroup.add(createHoldDownClamp(3.5, -3.5)); staticBaseGroup.add(createHoldDownClamp(-3.5, -3.5));
+        scene.add(staticBaseGroup);
+
+        // --- 5. 脐带塔 ---
+        const towerGroup = new THREE.Group();
+        const towerHeight = 75, towerWidth = 14;
+        const towerMain = new THREE.Mesh(new THREE.BoxGeometry(towerWidth, towerHeight, towerWidth), new THREE.MeshLambertMaterial({ color: 0x1A237E }));
+        towerMain.position.y = towerHeight / 2; towerMain.castShadow = true; towerMain.receiveShadow = true; towerGroup.add(towerMain);
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(2, towerHeight, 2), new THREE.MeshLambertMaterial({ color: 0x050505 }));
+        rail.position.set((towerWidth/2) - 0.5, towerHeight/2, 0); towerGroup.add(rail);
+        towerGroup.position.set(-18, rocketBaseY, 0); scene.add(towerGroup);
+
+        // --- 6. 半爪形摆杆 ---
+        const armsList = [];
+        const globalArmMat = new THREE.MeshLambertMaterial({ color: 0xc2410c }); 
+
+        function createSymmetricArm(heightY, isLeft) {
+            const pivotGroup = new THREE.Group();
+            const zOffset = 3.6; const length = 11; const sign = isLeft ? 1 : -1;
+            pivotGroup.position.set(-11, rocketBaseY + heightY, zOffset * sign); 
+
+            const armGroup = new THREE.Group();
+            const armMesh = new THREE.Mesh(new THREE.BoxGeometry(length, 1.2, 1.8), globalArmMat);
+            armMesh.position.set(length / 2, 0, 0); armMesh.castShadow = true; armGroup.add(armMesh);
+            
+            const truss = new THREE.Mesh(new THREE.BoxGeometry(length * 0.9, 0.4, 2.0), new THREE.MeshLambertMaterial({ color: 0x9a3412 }));
+            truss.position.set(length / 2, 0, 0); armGroup.add(truss); pivotGroup.add(armGroup);
+
+            const servoMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 3.2, 16), new THREE.MeshLambertMaterial({ color: 0xeab308 }));
+            pivotGroup.add(servoMesh);
+
+            const clawRadius = zOffset; const arcAngle = Math.PI * 0.22; 
+            const arcMesh = new THREE.Mesh(new THREE.TorusGeometry(clawRadius, 0.6, 8, 16, arcAngle), globalArmMat);
+            arcMesh.position.set(length, 0, -zOffset * sign);
+
+            if (isLeft) { arcMesh.rotation.x = Math.PI / 2; arcMesh.rotation.z = Math.PI / 2 - arcAngle; } 
+            else { arcMesh.rotation.x = -Math.PI / 2; arcMesh.rotation.z = Math.PI / 2 - arcAngle; }
+            pivotGroup.add(arcMesh);
+
+            const hoseMat = new THREE.MeshLambertMaterial({ color: 0x111827 }); 
+            const straightHose = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, length, 16), hoseMat);
+            straightHose.rotation.z = Math.PI / 2; straightHose.position.set(length / 2, 0.85, 0); pivotGroup.add(straightHose);
+
+            const curvedHose = new THREE.Mesh(new THREE.TorusGeometry(clawRadius, 0.25, 8, 16, arcAngle), hoseMat);
+            curvedHose.position.set(length, 0.85, -zOffset * sign);
+            if (isLeft) { curvedHose.rotation.x = Math.PI / 2; curvedHose.rotation.z = Math.PI / 2 - arcAngle; } 
+            else { curvedHose.rotation.x = -Math.PI / 2; curvedHose.rotation.z = Math.PI / 2 - arcAngle; }
+            pivotGroup.add(curvedHose);
+
+            const tipGroup = new THREE.Group(); tipGroup.position.set(clawRadius, 0, 0); 
+            tipGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 1.2), globalArmMat));
+            
+            const port = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16), new THREE.MeshLambertMaterial({ color: 0xeab308 }));
+            port.rotation.z = Math.PI / 2; port.position.set(-0.4, 0, 0); tipGroup.add(port);
+            
+            const light = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0x00AEEF }));
+            light.position.set(0.4, 0, 0); tipGroup.add(light);
+            
+            arcMesh.add(tipGroup); scene.add(pivotGroup);
+
+            return { update: function(angleRad) { pivotGroup.rotation.y = isLeft ? angleRad : -angleRad; } };
+        }
+
+        armsList.push(createSymmetricArm(35, true)); armsList.push(createSymmetricArm(35, false)); 
+        armsList.push(createSymmetricArm(45, true)); armsList.push(createSymmetricArm(45, false)); 
+
+        // --- 6.5 特效系统：爆炸碎片 ---
+        const explosions = [];
+        let explosionTimeouts = [];
+
+        function createExplosion(x, y, z) {
+            const particleCount = 200;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const velocities = [];
+            const colors = new Float32Array(particleCount * 3);
+
+            const colorList = [
+                new THREE.Color(0xFF5252), // 珊瑚红
+                new THREE.Color(0xFFC107), // 日落黄
+                new THREE.Color(0x333333), // 黑烟
+                new THREE.Color(0xffffff)  // 高光碎片
+            ];
+
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = x + (Math.random() - 0.5) * 6;
+                positions[i * 3 + 1] = y + (Math.random() - 0.5) * 10;
+                positions[i * 3 + 2] = z + (Math.random() - 0.5) * 6;
+
+                const speed = 1 + Math.random() * 8;
+                const vx = (Math.random() - 0.5) * speed;
+                const vy = (Math.random() - 0.2) * speed; 
+                const vz = (Math.random() - 0.5) * speed;
+                velocities.push(new THREE.Vector3(vx, vy, vz));
+
+                const col = colorList[Math.floor(Math.random() * colorList.length)];
+                colors[i * 3] = col.r;
+                colors[i * 3 + 1] = col.g;
+                colors[i * 3 + 2] = col.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: 6,
+                vertexColors: true,
+                transparent: true,
+                opacity: 1.0,
+                blending: THREE.NormalBlending,
+                depthWrite: false
+            });
+
+            const points = new THREE.Points(geometry, material);
+            scene.add(points);
+            explosions.push({ type: 'points', mesh: points, velocities: velocities, life: 1.0 });
+
+            // 中心闪光球体
+            const flashGeo = new THREE.SphereGeometry(8, 16, 16);
+            const flashMat = new THREE.MeshBasicMaterial({ color: 0xFFC107, transparent: true, opacity: 1.0 });
+            const flashMesh = new THREE.Mesh(flashGeo, flashMat);
+            flashMesh.position.set(x, y, z);
+            scene.add(flashMesh);
+            explosions.push({ type: 'flash', mesh: flashMesh, life: 1.0 });
+        }
+
+        // --- 烧毁烟雾特效生成函数 ---
+        function createSmokeBurst(x, y, z) {
+            const smokeGroup = new THREE.Group();
+            const colors = [0x111111, 0x333333, 0x555555, 0xFF5252];
+            
+            for (let i = 0; i < 15; i++) {
+                const mat = new THREE.MeshBasicMaterial({
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const geo = new THREE.IcosahedronGeometry(Math.random() * 1.5 + 0.5, 0);
+                const mesh = new THREE.Mesh(geo, mat);
+                
+                mesh.userData = {
+                    velocity: new THREE.Vector3(
+                        (Math.random() - 0.5) * 1,
+                        Math.random() * 1.5 + 0.5, // 向上飘散
+                        (Math.random() - 0.5) * 1
+                    ),
+                    rotSpeed: new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.2,
+                        (Math.random() - 0.5) * 0.2,
+                        (Math.random() - 0.5) * 0.2
+                    ),
+                    scaleSpeed: Math.random() * 0.02 + 1.02,
+                    life: 1.0,
+                    decay: 0.008 // 烟雾消散得慢一点
+                };
+                smokeGroup.add(mesh);
+            }
+            
+            smokeGroup.position.set(x, y, z);
+            scene.add(smokeGroup);
+            explosions.push({ type: 'group', mesh: smokeGroup });
+        }
+
+        function updateExplosions() {
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const exp = explosions[i];
+                
+                if (exp.type === 'points') {
+                    exp.life -= 0.01;
+                    if (exp.life <= 0) {
+                        scene.remove(exp.mesh);
+                        exp.mesh.geometry.dispose();
+                        exp.mesh.material.dispose();
+                        explosions.splice(i, 1);
+                        continue;
+                    }
+                    const positions = exp.mesh.geometry.attributes.position.array;
+                    for (let j = 0; j < exp.velocities.length; j++) {
+                        positions[j * 3] += exp.velocities[j].x;
+                        positions[j * 3 + 1] += exp.velocities[j].y;
+                        positions[j * 3 + 2] += exp.velocities[j].z;
+                        
+                        exp.velocities[j].y -= 0.15; // 重力
+                        exp.velocities[j].x *= 0.98; // 阻力
+                        exp.velocities[j].z *= 0.98;
+                    }
+                    exp.mesh.geometry.attributes.position.needsUpdate = true;
+                    exp.mesh.material.opacity = Math.max(0, exp.life * 1.5);
+                } 
+                else if (exp.type === 'flash') {
+                    exp.life -= 0.08;
+                    const scale = 1 + (1 - exp.life) * 2;
+                    exp.mesh.scale.set(scale, scale, scale);
+                    exp.mesh.material.opacity = exp.life;
+                    if (exp.life <= 0) {
+                        scene.remove(exp.mesh);
+                        exp.mesh.geometry.dispose();
+                        exp.mesh.material.dispose();
+                        explosions.splice(i, 1);
+                    }
+                }
+                else if (exp.type === 'group') {
+                    let allDead = true;
+                    exp.mesh.children.forEach(particle => {
+                        particle.position.add(particle.userData.velocity);
+                        particle.rotation.x += particle.userData.rotSpeed.x;
+                        particle.rotation.y += particle.userData.rotSpeed.y;
+                        particle.scale.multiplyScalar(particle.userData.scaleSpeed);
+                        
+                        particle.userData.life -= particle.userData.decay;
+                        particle.material.opacity = Math.max(0, particle.userData.life);
+                        
+                        if (particle.userData.life > 0) allDead = false;
+                    });
+                    
+                    if (allDead) {
+                        scene.remove(exp.mesh);
+                        explosions.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        // --- 7. UI 控制与弧形滑杆逻辑 ---
+        function initArcSlider(hitId, fillId, thumbId, radius, initialValue, onUpdate) {
+            const hitEl = document.getElementById(hitId);
+            const fillEl = document.getElementById(fillId);
+            const thumbEl = document.getElementById(thumbId);
+            const container = document.getElementById('arc-sliders');
+
+            let currentValue = initialValue; 
+            let isDragging = false;
+
+            const trackStartAngleDeg = 240;
+            const trackSweepAngleDeg = 60;
+            const offsetPx = 24;
+            const offsetDeg = (offsetPx / radius) * (180 / Math.PI);
+            
+            const startAngleDeg = trackStartAngleDeg + offsetDeg;
+            const sweepAngleDeg = trackSweepAngleDeg - 2 * offsetDeg;
+            const pathLength = (sweepAngleDeg / 360) * 2 * Math.PI * radius;
+
+            fillEl.setAttribute('transform', `rotate(${startAngleDeg} 300 600)`);
+            fillEl.setAttribute('stroke-dasharray', `${pathLength} 4000`);
+
+            function updateUI(val, isUserInput = false) {
+                currentValue = Math.max(0, Math.min(1, val));
+                fillEl.style.strokeDashoffset = pathLength * (1 - currentValue);
+
+                let currentAngleDeg = startAngleDeg + currentValue * sweepAngleDeg;
+                let currentAngleRad = currentAngleDeg * Math.PI / 180;
+                let tx = 300 + radius * Math.cos(currentAngleRad);
+                let ty = 600 + radius * Math.sin(currentAngleRad);
+
+                thumbEl.style.left = `${(tx / 600) * 100}%`;
+                thumbEl.style.top = `${(ty / 160) * 100}%`;
+                
+                if (onUpdate) onUpdate(currentValue);
+            }
+
+            function handlePointer(e) {
+                if (!isDragging && e.type !== 'pointerdown') return;
+                
+                const rect = container.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + (600 / 160) * rect.height;
+
+                let dx = e.clientX - cx; let dy = e.clientY - cy;
+                let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+                if (angle < 0) angle += 360; 
+
+                let val = (angle - startAngleDeg) / sweepAngleDeg;
+                if (val < -0.1) val = 0; 
+                if (val > 1.1) val = 1;
+
+                updateUI(val, true);
+            }
+
+            hitEl.addEventListener('pointerdown', (e) => {
+                if(container.classList.contains('disabled-interaction')) return;
+                isDragging = true;
+                
+                if (appMode === 'game') {
+                    hasDraggedSliders = true;
+                    updateUIHints();
+                }
+
+                hitEl.setPointerCapture(e.pointerId);
+                fillEl.style.transition = 'none'; thumbEl.style.transition = 'none';
+                handlePointer(e);
+            });
+            hitEl.addEventListener('pointermove', handlePointer);
+            hitEl.addEventListener('pointerup', (e) => {
+                isDragging = false;
+                hitEl.releasePointerCapture(e.pointerId);
+                fillEl.style.transition = 'stroke-dashoffset 0.1s linear';
+                thumbEl.style.transition = 'left 0.1s linear, top 0.1s linear';
+            });
+
+            updateUI(initialValue); 
+            return { setValue: (val) => updateUI(val, false), getValue: () => currentValue };
+        }
+
+        const sliderAngle = initArcSlider('hit-angle', 'fill-angle', 'thumb-angle', 600, 0.0, (val) => {
+            let deg = Math.round(val * 90);
+            const el = document.getElementById('val-angle');
+            el.innerText = deg + '°';
+            
+            // --- 更新分水岭颜色判断规则 30° / 45° ---
+            if(deg < 30) el.style.color = '#FF5252';
+            else if(deg < 45) el.style.color = '#FFC107';
+            else el.style.color = '#00E676';
+
+            if (gameState === 'IDLE') {
+                armsList.forEach(arm => arm.update(-deg * (Math.PI / 180)));
+            }
+        });
+
+        const sliderSpeed = initArcSlider('hit-speed', 'fill-speed', 'thumb-speed', 540, 1.0, (val) => {
+            const el = document.getElementById('val-speed');
+            if (val < 0.33) { el.innerText = '慢速'; el.style.color = '#FF5252'; } 
+            else if (val < 0.66) { el.innerText = '中速'; el.style.color = '#FFC107'; } 
+            else { el.innerText = '极速'; el.style.color = '#00E676'; }
+        });
+
+        const igniteBtn = document.getElementById('igniteBtn'); 
+        const autoDemoBtn = document.getElementById('autoDemoBtn'); 
+        const resetBtn = document.getElementById('resetBtn');
+
+        // --- 核心重置逻辑 ---
+        function resetScene() {
+            clearTimeout(gameTimeout); 
+            isDemoPaused = false;
+            ignitionFrames = 0;
+            gameState = 'IDLE'; 
+            rocketWrapper.position.y = 0;
+            rocketWrapper.visible = true; // 重置时确保火箭可见
+            currentArmAngle = 0; 
+            
+            // 清理遗留爆炸特效
+            explosionTimeouts.forEach(clearTimeout);
+            explosionTimeouts = [];
+            explosions.forEach(exp => {
+                if (exp.mesh) scene.remove(exp.mesh);
+                if (exp.mesh && exp.mesh.geometry) exp.mesh.geometry.dispose();
+                if (exp.mesh && exp.mesh.material) exp.mesh.material.dispose();
+            });
+            explosions.length = 0;
+
+            sliderAngle.setValue(0); 
+            armsList.forEach(arm => arm.update(0));
+            
+            if (appMode === 'observe') {
+                sliderSpeed.setValue(1.0); 
+                document.getElementById('arc-sliders').classList.add('grey-out');
+                document.getElementById('arc-sliders').classList.add('disabled-interaction');
+                updateUIStatus('IDLE', "观察模式", "点击自动演示，观察标准脱落时序", "idle");
+            } else {
+                sliderSpeed.setValue(0.0); 
+                document.getElementById('arc-sliders').classList.remove('grey-out');
+                document.getElementById('arc-sliders').classList.remove('disabled-interaction');
+                updateUIStatus('IDLE', "系统待机", "设定脱落开角与速度，按下 IGNITION 点火", "idle");
+            }
+
+            globalArmMat.color.setHex(0xc2410c); 
+            scene.position.set(0,0,0); 
+            flamesList.forEach(f => f.group.visible = false);
+            
+            igniteBtn.classList.remove('locked');
+            
+            autoDemoBtn.classList.remove('locked'); 
+            autoDemoBtn.innerHTML = '<span class="icon">▶</span> 自动演示';
+            
+            modalShown = false; 
+            overlay.classList.add('hidden'); 
+        }
+
+        // --- 模式切换控制 ---
+        window.switchAppMode = function(newMode) {
+            if (appMode === newMode && gameState === 'IDLE') return; 
+
+            appMode = newMode;
+            hasClickedDemo = false;
+            hasDraggedSliders = false;
+
+            document.getElementById('btn-observe').classList.toggle('active', newMode === 'observe');
+            document.getElementById('btn-game').classList.toggle('active', newMode === 'game');
+            
+            if (newMode === 'observe') {
+                igniteBtn.style.display = 'none';
+                autoDemoBtn.style.display = 'flex'; 
+            } else {
+                igniteBtn.style.display = 'flex'; 
+                autoDemoBtn.style.display = 'none';
+            }
+
+            resetScene();
+            updateUIHints();
+        }
+
+        resetBtn.onclick = resetScene;
+
+        autoDemoBtn.onclick = () => {
+            hasClickedDemo = true;
+            updateUIHints();
+
+            if (appMode !== 'observe' || gameState === 'DEMO_DONE') return;
+            
+            if (gameState === 'IDLE') {
+                currentArmAngle = 0; armsList.forEach(arm => arm.update(0));
+                sliderAngle.setValue(0); 
+                rocketWrapper.position.y = 0; 
+                
+                modalShown = false; 
+                isDemoPaused = false;
+                ignitionFrames = 0; 
+                gameState = 'DEMO_IGNITION';
+                
+                updateUIStatus('running', "主引擎点火 (T-3s)", "推力蓄压中，摆杆维持抱紧状态...", "running");
+                
+                autoDemoBtn.innerHTML = '<span class="icon">⏸</span> 暂停演示';
+                
+                document.getElementById('arc-sliders').classList.remove('grey-out');
+                document.getElementById('arc-sliders').classList.add('disabled-interaction');
+            } 
+            else if (gameState === 'DEMO_IGNITION' || gameState === 'DEMO_LIFTOFF') {
+                isDemoPaused = !isDemoPaused;
+                
+                if (isDemoPaused) {
+                    autoDemoBtn.innerHTML = '<span class="icon">▶</span> 继续演示';
+                    updateUIStatus('idle', "演示已暂停", "时间冻结，可拖拽画面或切换视角进行观察", "idle");
+                } else {
+                    autoDemoBtn.innerHTML = '<span class="icon">⏸</span> 暂停演示';
+                    if (gameState === 'DEMO_IGNITION') {
+                        updateUIStatus('running', "主引擎点火 (T-3s)", "推力蓄压中，摆杆维持抱紧状态...", "running");
+                    } else {
+                        updateUIStatus('running', "零秒脱落！", "起飞许可下达，摆杆极速撤离！", "running");
+                    }
+                }
+            }
+        };
+
+        igniteBtn.onclick = () => {
+            if (gameState !== 'IDLE' || appMode !== 'game') return;
+            
+            currentArmAngle = 0; armsList.forEach(arm => arm.update(0));
+            targetArmAngle = -Math.round(sliderAngle.getValue() * 90); 
+            
+            let sval = sliderSpeed.getValue();
+            if(sval < 0.33) armOpenSpeed = 0.125; 
+            else if(sval < 0.66) armOpenSpeed = 0.45; 
+            else armOpenSpeed = 1.25; 
+            
+            modalShown = false; 
+            
+            gameState = 'PRE_LAUNCH';
+            updateUIStatus('running', "系统锁定", "摆杆归位抱死，倒计时准备发射...", "running");
+            igniteBtn.classList.add('locked');
+            document.getElementById('arc-sliders').classList.add('locked');
+
+            gameTimeout = setTimeout(() => {
+                if (gameState === 'PRE_LAUNCH') {
+                    gameState = 'LAUNCHING';
+                    updateUIStatus('running', "发射序列执行中", "火箭主引擎已点火升空", "running");
+                }
+            }, 1000); 
+        };
+
+        // --- 8. 动画与物理判定引擎 ---
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            updateExplosions(); // 更新爆炸特效
+            
+            // 处理视角的平滑转场动画
+            if (isCameraMoving) {
+                // 转场时禁用阻尼，避免抢夺控制权
+                controls.enabled = false;
+                camera.position.lerp(targetCameraPos, 0.08);
+                camera.lookAt(controls.target);
+                
+                if (camera.position.distanceTo(targetCameraPos) < 0.5) {
+                    camera.position.copy(targetCameraPos);
+                    controls.enabled = true;
+                    isCameraMoving = false;
+                }
+            } else {
+                controls.update(); 
+            }
+
+            let showFlames = ['LAUNCHING', 'SUCCESS', 'BURNED', 'DEMO_IGNITION', 'DEMO_LIFTOFF', 'DEMO_DONE'].includes(gameState);
+
+            if (showFlames) {
+                flamesList.forEach(f => {
+                    f.group.visible = true; 
+                    if (!isDemoPaused) {
+                        f.outer.scale.set(0.9 + Math.random() * 0.2, 0.8 + Math.random() * 0.5, 0.9 + Math.random() * 0.2);
+                        f.inner.scale.set(0.9 + Math.random() * 0.2, 0.8 + Math.random() * 0.5, 0.9 + Math.random() * 0.2);
+                    }
+                });
+            } else {
+                flamesList.forEach(f => f.group.visible = false);
+            }
+
+            if (!isDemoPaused) {
+                if (gameState === 'DEMO_IGNITION') {
+                    ignitionFrames++;
+                    scene.position.x = (Math.random() - 0.5) * 0.15;
+                    scene.position.y = (Math.random() - 0.5) * 0.15;
+
+                    if (ignitionFrames >= 180) {
+                        gameState = 'DEMO_LIFTOFF';
+                        scene.position.set(0,0,0); 
+                        updateUIStatus('running', "零秒脱落！", "起飞许可下达，摆杆极速撤离！", "running");
+                    }
+                } 
+                else if (gameState === 'DEMO_LIFTOFF' || gameState === 'DEMO_DONE') {
+                    if (gameState === 'DEMO_LIFTOFF') {
+                        if (currentArmAngle > -90) {
+                            currentArmAngle -= 1.25; 
+                            if (currentArmAngle < -90) currentArmAngle = -90;
+                            armsList.forEach(arm => arm.update(currentArmAngle * (Math.PI / 180)));
+                            
+                            sliderAngle.setValue(Math.abs(currentArmAngle) / 90);
+                        } 
+                        let upwardSpeed = 0.2;
+                        if (rocketWrapper.position.y > 20) {
+                            upwardSpeed = 0.2 * Math.pow(1.04, rocketWrapper.position.y - 20);
+                        }
+                        rocketWrapper.position.y += upwardSpeed;
+                        
+                        if (rocketWrapper.position.y > 130) {
+                            gameState = 'DEMO_DONE';
+                            updateUIStatus('IDLE', "演示完成", "完美的零秒脱落时序！可点击重置场景返回", "success");
+                            
+                            autoDemoBtn.classList.add('locked');
+                            autoDemoBtn.innerHTML = '<span class="icon">▶</span> 自动演示';
+                        }
+                    } else if (gameState === 'DEMO_DONE') {
+                        let upwardSpeed = 0.2 * Math.pow(1.04, rocketWrapper.position.y - 20);
+                        rocketWrapper.position.y += upwardSpeed; 
+                    }
+                }
+            }
+
+            // --- 游戏闯关模式逻辑 (不受暂停影响) ---
+            if (gameState === 'LAUNCHING' || gameState === 'SUCCESS' || gameState === 'BURNED') {
+                if (currentArmAngle > targetArmAngle) {
+                    currentArmAngle -= armOpenSpeed;
+                    if (currentArmAngle < targetArmAngle) currentArmAngle = targetArmAngle;
+                    armsList.forEach(arm => arm.update(currentArmAngle * (Math.PI / 180)));
+                }
+
+                let upwardSpeed = 0.2; 
+                if (rocketWrapper.position.y > 20) {
+                    upwardSpeed = 0.2 * Math.pow(1.04, rocketWrapper.position.y - 20);
+                }
+                rocketWrapper.position.y += upwardSpeed; 
+                let dy = rocketWrapper.position.y; 
+
+                if (gameState === 'LAUNCHING') {
+                    // --- 物理碰撞判定：高度 8~30 的危险区 ---
+                    if (dy > 8 && dy < 30) {
+                        if (currentArmAngle > -30) {
+                            if (gameState !== 'CRASHED') {
+                                gameState = 'CRASHED';
+                                updateUIStatus(gameState, "致命碰撞", "摆杆未能及时避让火箭主体", "fail");
+                                createExplosion(-4, dy + 20, 0);
+                                gameTimeout = setTimeout(() => {
+                                    if (gameState === 'CRASHED' && !modalShown) {
+                                        modalShown = true;
+                                        showResult('💥 任务失败：致命碰撞！', '开角不足 30° 或撤离过慢，摆杆未能避开火箭主体，直接撞碎了塔架！重症监护室拔管失败！', 'fail');
+                                    }
+                                }, 3000); 
+                            }
+                        }
+                    } 
+                    // --- 尾焰烧毁判定：高度 30~60 的危险区 ---
+                    else if (dy >= 30 && dy < 60) {
+                        if (currentArmAngle > -45) {
+                            if (gameState !== 'BURNED') {
+                                gameState = 'BURNED';
+                                globalArmMat.color.setHex(0x111111); 
+                                updateUIStatus(gameState, "设备损毁", "开角不足 45°，摆杆遭尾焰烧毁", "warn");
+                                createSmokeBurst(-11, 35, 3.6);
+                                createSmokeBurst(-11, 35, -3.6);
+                                createSmokeBurst(-11, 45, 3.6);
+                                createSmokeBurst(-11, 45, -3.6);
+                            }
+                        }
+                    } 
+                    else if (dy >= 60) {
+                        gameState = 'SUCCESS';
+                        updateUIStatus(gameState, "脱落成功", "火箭安全进入预定轨道", "success");
+                    }
+                }
+
+                if ((gameState === 'SUCCESS' || gameState === 'BURNED') && dy > 130 && !modalShown) {
+                    modalShown = true;
+                    if (gameState === 'SUCCESS') {
+                        showResult('✅ 零秒脱落：完美执行！', '动作行云流水！摆杆开角达到 45° 以上，完美避开了火箭主体与高温尾焰，安全进入轨道！', 'success');
+                    } else if (gameState === 'BURNED') {
+                        showResult('🔥 设备损毁：烈焰焚身！', '惊险！摆杆虽然躲开了主体(>30°)，但未贴合塔架(>45°)，被几千度的高温尾焰完全烧毁！', 'warn');
+                    }
+                }
+            } 
+            else if (gameState === 'CRASHED') {
+                scene.position.x = (Math.random() - 0.5) * 0.4;
+                scene.position.y = (Math.random() - 0.5) * 0.4;
+            }
+
+            renderer.render(scene, camera);
+        }
+        
+        window.switchAppMode('observe');
+        showBriefing(); // 在初始化模式后立即打开任务简报
+        animate();
+
+    </script>
+</body>
+</html>
