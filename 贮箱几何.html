@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 火箭贮箱：泰坦实验室</title>
+    <!-- 引入 Inter 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <style>
+        /* 全局重置与基础设置 */
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #050505; /* 深空黑 Cosmic Black */
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            color: #FFFFFF;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* 核心舞台 */
+        #stage {
+            position: relative;
+            width: 1920px;
+            height: 1080px;
+            /* 背景渐变：深海蓝 (Deep Navy) -> 深空黑 (Cosmic Black) */
+            background: radial-gradient(circle at center, #1A237E 0%, #050505 100%);
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            overflow: hidden;
+            flex-shrink: 0;
+            transform-origin: center center;
+        }
+
+        /* 全局背景网格与交点菱形点缀 */
+        #stage::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            /* 湖水绿 (Teal) 降低透明度的网格点缀 */
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><line x1='40' y1='0' x2='40' y2='80' stroke='rgba(0,131,143,0.2)' stroke-width='1'/><line x1='0' y1='40' x2='80' y2='40' stroke='rgba(0,131,143,0.2)' stroke-width='1'/><polygon points='40,37 43,40 40,43 37,40' fill='rgba(0,174,239,0.3)'/></svg>");
+            background-size: 80px 80px;
+            z-index: 0;
+            pointer-events: none;
+            -webkit-mask-image: radial-gradient(circle at center, rgba(0,0,0,1) 30%, rgba(0,0,0,0.05) 100%);
+            mask-image: radial-gradient(circle at center, rgba(0,0,0,1) 30%, rgba(0,0,0,0.05) 100%);
+        }
+
+        /* --- A区：品牌区 --- */
+        #brand-zone { position: absolute; top: 24px; left: 48px; z-index: 50; }
+        #brand-zone h1 {
+            margin: 0; 
+            font-size: 48px !important; 
+            font-weight: 900 !important; 
+            letter-spacing: -1px;
+            line-height: 1.2;
+            /* 渐变：电光青 (Electric Cyan) -> 皇家靛蓝 (Royal Indigo) */
+            background: linear-gradient(135deg, #00AEEF 0%, #2A4B9A 100%);
+            -webkit-background-clip: text; 
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(0, 174, 239, 0.3);
+        }
+        #brand-zone .subtitle { 
+            margin-top: 4px; 
+            font-size: 18px !important; 
+            color: #4DD0E1; /* 知更鸟蛋蓝 Robin Egg Blue */
+            font-weight: 500; 
+            letter-spacing: 2px; 
+        }
+
+        /* --- B区：导航 --- */
+        #nav-zone { position: absolute; top: 140px; left: 48px; display: flex; flex-direction: column; gap: 12px; z-index: 50; width: 180px; }
+        .mode-btn {
+            padding: 12px 16px; background: rgba(26, 35, 126, 0.6); border: 2px solid #2A4B9A; color: #4DD0E1;
+            font-size: 18px; font-weight: 600; text-align: left; cursor: pointer; transition: all 0.3s ease;
+            display: flex; align-items: center; gap: 12px; border-radius: 0; overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+        }
+        .mode-btn:hover { background: rgba(42, 75, 154, 0.8); color: #FFFFFF; border-color: #00AEEF; }
+        .mode-btn.active {
+            background: linear-gradient(90deg, rgba(0,174,239,0.15) 0%, rgba(0,174,239,0) 100%);
+            border-left: 8px solid #00AEEF; color: #00AEEF; font-weight: bold;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        }
+        .mode-btn span { font-size: 1.2em; display: inline-block; }
+
+        /* --- C区：主视窗 --- */
+        #viewport-zone {
+            position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+            width: 1420px; height: 800px; background: #050505; border: 2px solid #2A4B9A;
+            box-shadow: 0 0 60px rgba(0,0,0,0.6) inset; z-index: 10; overflow: hidden;
+        }
+        .corner-marker { position: absolute; width: 20px; height: 20px; border-color: #00AEEF; border-style: solid; pointer-events: none; z-index: 20; opacity: 0.5; }
+        .tl { top: 0; left: 0; border-width: 4px 0 0 4px; }
+        .tr { top: 0; right: 0; border-width: 4px 4px 0 0; }
+        .bl { bottom: 0; left: 0; border-width: 0 0 4px 4px; }
+        .br { bottom: 0; right: 0; border-width: 0 4px 4px 0; }
+
+        /* 浮动面板统一样式调整 (整体应用任务简报弹窗风格) */
+        .glass-panel {
+            background: rgba(26, 35, 126, 0.85); /* 深海蓝半透明底色 */
+            border: 2px solid #2A4B9A; /* 皇家靛蓝边框 */
+            border-top: 8px solid #FF5252; /* 粗顶部动态状态边框 */
+            backdrop-filter: blur(8px);
+            padding: 16px; 
+            pointer-events: auto;
+            transition: opacity 0.3s, transform 0.3s, border-top-color 0.3s ease;
+            opacity: 1;
+            transform: translateX(0);
+            border-radius: 0 !important; 
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+        }
+        /* 更新为特定的宽高 */
+        #panel-metrics { 
+            width: 180px !important; 
+            height: 300px !important; 
+        }
+
+        /* --- 状态信息区 --- */
+        #status-zone { position: absolute; top: 24px; right: 32px; z-index: 50; text-align: right; pointer-events: none; }
+        .status-panel-top { opacity: 1; transition: opacity 0.4s ease; }
+        .status-main { font-size: 32px; font-weight: 800; color: #FFFFFF; margin-bottom: 4px; text-shadow: 0 0 20px rgba(0,0,0,0.5); transition: color 0.3s; }
+        .status-sub { font-size: 18px; font-weight: 500; color: #4DD0E1; }
+        .status-dot { width: 14px; height: 14px; border-radius: 50%; margin-right: 12px; display: inline-block; vertical-align: middle; margin-top: -6px; }
+        /* 状态圆点色彩 */
+        .status-dot.danger { background: #FF5252; box-shadow: 0 0 10px #FF5252; } /* 珊瑚红 */
+        .status-dot.optimal { background: #00E676; box-shadow: 0 0 10px #00E676; } /* 化学绿 */
+        .status-dot.safe { background: #00AEEF; box-shadow: 0 0 10px #00AEEF; } /* 电光青 */
+
+        /* 顶部中央小标签 */
+        .status-box {
+            display: inline-block; padding: 12px 24px; font-family: 'Inter', monospace;
+            font-size: 14px; border: 1px solid; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);
+            backdrop-filter: blur(8px); transition: all 0.3s;
+            font-weight: 700;
+        }
+        .status-box.danger { background: rgba(255, 82, 82, 0.15); border-color: #FF5252; color: #FF5252; }
+        .status-box.optimal { background: rgba(0, 230, 118, 0.15); border-color: #00E676; color: #00E676; }
+        .status-box.safe { background: rgba(0, 174, 239, 0.15); border-color: #00AEEF; color: #00AEEF; }
+
+        /* --- D区：工作区 --- */
+        #control-deck {
+            position: absolute; bottom: 0; left: 0; width: 1920px; height: 220px;
+            background: transparent; border: none; 
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            z-index: 30; pointer-events: none;
+            padding: 0 48px; box-sizing: border-box;
+        }
+        
+        .control-panel { 
+            width: 100%; height: 100%; display: flex; align-items: center; 
+            justify-content: space-between; pointer-events: auto; 
+        }
+
+        .left-controls { display: flex; align-items: center; gap: 24px; flex: 1; justify-content: flex-start; align-self: flex-end; margin-bottom: 48px; }
+        .right-controls { display: flex; align-items: center; gap: 24px; flex: 1; justify-content: flex-end; align-self: flex-end; margin-bottom: 48px; }
+
+        /* 圆形按钮样式 */
+        .circle-btn {
+            position: relative;
+            border-radius: 50%;
+            background: rgba(26, 35, 126, 0.9); /* 深海蓝 */
+            border: 2px solid rgba(42, 75, 154, 0.8); /* 皇家靛蓝 */
+            color: #4DD0E1; /* 知更鸟蛋蓝 */
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            font-weight: 600; font-size: 14px; box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+            user-select: none; flex-shrink: 0; backdrop-filter: blur(8px);
+            font-family: 'Inter', sans-serif;
+            width: 100px; height: 100px;
+        }
+        
+        /* 图标调整为文本 Emoji 控制 */
+        .circle-btn .icon { font-size: 28px; margin-bottom: 4px; display: block; text-align: center; line-height: 1; }
+
+        /* 4px 圆形外框盖在上方 */
+        .circle-btn::after {
+            content: ''; position: absolute; top: -4px; left: -4px; right: -4px; bottom: -4px; 
+            border-radius: 50%; border: 4px solid transparent; pointer-events: none; transition: all 0.2s ease; z-index: 10;
+        }
+
+        .circle-btn:hover { background: #2A4B9A; color: #FFFFFF; transform: translateY(-4px); box-shadow: 0 15px 35px rgba(0,0,0,0.8); border-color: #00AEEF; }
+        .circle-btn:active { transform: translateY(-2px); }
+        
+        /* 激活时：外框变成电光青，内部电光青半透明 */
+        .circle-btn:active::after,
+        .circle-btn.toggle-active::after { border-color: #00AEEF; background-color: rgba(0, 174, 239, 0.15); }
+        .circle-btn.toggle-active { color: white; border-color: transparent; box-shadow: 0 0 20px rgba(0, 174, 239, 0.4); }
+
+        /* 特殊状态按钮 (危险与警告) */
+        .circle-btn.danger:hover { background: #E91E63; border-color: #FF5252; color: white; box-shadow: 0 0 20px rgba(255, 82, 82, 0.4); }
+        /* 暂停警告色 (使用日落黄与光能黄) */
+        .circle-btn.warning:hover, .circle-btn.warning.toggle-active::after { border-color: #FFC107; background-color: rgba(255, 193, 7, 0.15); color: #FFEB3B; }
+        .circle-btn.warning.toggle-active { color: #FFEB3B; box-shadow: 0 0 20px rgba(255, 193, 7, 0.4); }
+
+        /* --- 呼吸光晕交互提示特效 (Breathing Halo Prompt) --- */
+        /* 1. 圆形按钮的外扩波纹光晕 */
+        @keyframes pulse-ring {
+            0% { transform: scale(1); opacity: 0.8; border-color: #00AEEF; box-shadow: 0 0 10px #00AEEF inset, 0 0 10px #00AEEF; }
+            100% { transform: scale(1.4); opacity: 0; border-color: #00AEEF; box-shadow: 0 0 40px #00AEEF inset, 0 0 40px #00AEEF; }
+        }
+        .circle-btn.prompt-glow::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
+            border-radius: 50%; border: 2px solid #00AEEF; pointer-events: none; z-index: -1;
+            animation: pulse-ring 2s infinite ease-out;
+        }
+
+        /* 2. 弧线滑块准星的膨胀光晕 */
+        @keyframes breathe-thumb-shape {
+            0% { box-shadow: 0 0 10px rgba(255, 255, 255, 0.5); transform: translate(-50%, -50%) scale(1); }
+            50% { box-shadow: 0 0 25px rgba(255, 255, 255, 1), 0 0 10px #FFFFFF inset; transform: translate(-50%, -50%) scale(1.3); }
+            100% { box-shadow: 0 0 10px rgba(255, 255, 255, 0.5); transform: translate(-50%, -50%) scale(1); }
+        }
+        @keyframes breathe-thumb-fuel {
+            0% { box-shadow: 0 0 10px rgba(0, 174, 239, 0.5); transform: translate(-50%, -50%) scale(1); }
+            50% { box-shadow: 0 0 25px #00AEEF, 0 0 10px #00AEEF inset; transform: translate(-50%, -50%) scale(1.3); }
+            100% { box-shadow: 0 0 10px rgba(0, 174, 239, 0.5); transform: translate(-50%, -50%) scale(1); }
+        }
+        #thumb-shape.prompt-glow { animation: breathe-thumb-shape 1.5s infinite ease-in-out; }
+        #thumb-fuel.prompt-glow { animation: breathe-thumb-fuel 1.5s infinite ease-in-out; animation-delay: 0.2s; }
+
+        /* 锁定状态 (保留 pointer-events:none，但允许特定激活态恢复色彩) */
+        .locked { opacity: 0.4; pointer-events: none; filter: grayscale(0.8); transition: all 0.3s ease; }
+        .locked.auto-filling-active, .locked.toggle-active, .locked.prompt-glow { opacity: 1; filter: grayscale(0); }
+
+        /* --- 极浅弧线仪表盘组 --- */
+        .slider-group {
+            display: flex; flex-direction: row; justify-content: center; align-items: flex-end;
+            width: 650px; flex-shrink: 0; align-self: flex-end; margin-bottom: 0px;
+            position: relative; left: 172px;
+        }
+        
+        .arc-container { position: relative; width: 600px; height: 160px; touch-action: none; }
+        .arc-container svg { width: 100%; height: 100%; overflow: visible; }
+        
+        /* 轨道：薄荷冰蓝低透明度 */
+        .rs-bg { fill: none; stroke: rgba(224, 247, 250, 0.15); stroke-width: 2; stroke-linecap: butt; }
+        
+        /* 进度条样式 */
+        .rs-fill-shape {
+            fill: none; stroke: #FFFFFF; stroke-width: 4; stroke-linecap: butt; 
+            filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.6)); transition: stroke-dashoffset 0.1s linear, stroke 0.3s;
+        }
+        .rs-fill-fuel {
+            fill: none; stroke: #00AEEF; stroke-width: 4; stroke-linecap: butt; 
+            filter: drop-shadow(0 0 6px rgba(0, 174, 239, 0.6)); transition: stroke-dashoffset 0.1s linear;
+        }
+
+        /* 隐藏的加粗触控区 */
+        .rs-hit { fill: none; stroke: transparent; stroke-width: 60; cursor: pointer; pointer-events: stroke; }
+
+        /* 准星滑块 */
+        .rs-thumb {
+            position: absolute; width: 32px; height: 32px; border-radius: 50%;
+            pointer-events: none; top: 0; left: 0; transform: translate(-50%, -50%);
+            transition: left 0.1s linear, top 0.1s linear; z-index: 10;
+        }
+        #thumb-shape { border: 4px solid #FFFFFF; background: rgba(255, 255, 255, 0.5); box-shadow: 0 0 10px rgba(255, 255, 255, 0.5); }
+        #thumb-fuel { border: 4px solid #00AEEF; background: rgba(0, 174, 239, 0.5); box-shadow: 0 0 10px rgba(0, 174, 239, 0.5); }
+
+        /* 居中数据标签 */
+        .arc-labels {
+            position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 60px; text-align: center; pointer-events: none;
+        }
+        .c-label { font-size: 18px; font-weight: 700; letter-spacing: 2px; }
+        .c-label span { 
+            display: block; font-size: 32px; font-weight: 400; 
+            font-family: 'Inter', sans-serif; font-variant-numeric: tabular-nums;
+            letter-spacing: 2px; margin-top: 6px; line-height: 1; text-shadow: 0 0 15px rgba(255,255,255,0.2);
+        }
+
+        /* --- E区：任务简报/任务说明/爆炸警报 模态框组 --- */
+        .modal-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 5, 5, 0.75); backdrop-filter: blur(12px);
+            z-index: 999; display: flex; justify-content: center; align-items: center;
+            opacity: 1; transition: opacity 0.5s ease; pointer-events: auto;
+        }
+        .modal-overlay.hidden { opacity: 0; pointer-events: none; }
+        
+        .modal-content {
+            width: 760px; background: rgba(26, 35, 126, 0.85); border: 2px solid #2A4B9A;
+            border-top: 8px solid #00AEEF; padding: 64px 56px; box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+            transform: translateY(0) scale(1); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+        }
+        .modal-overlay.hidden .modal-content { transform: translateY(20px) scale(0.95); }
+        
+        .modal-title { font-size: 32px; color: #FFFFFF; margin-bottom: 32px; font-weight: 800; letter-spacing: 2px; }
+        .modal-desc { font-size: 18px; color: #E0F7FA; line-height: 1.8; margin-bottom: 20px; font-weight: 500; max-width: 660px; }
+        .modal-desc strong { color: #00AEEF; font-weight: 700; }
+        
+        .modal-btn {
+            background: rgba(0, 174, 239, 0.1); border: 2px solid #00AEEF; color: #00AEEF;
+            padding: 16px 40px; font-size: 18px; font-weight: 600; cursor: pointer;
+            transition: all 0.3s; margin-top: 32px; font-family: 'Inter', sans-serif;
+            letter-spacing: 1px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+        }
+        .modal-btn:hover { background: rgba(0, 174, 239, 0.25); box-shadow: 0 12px 25px rgba(0, 174, 239, 0.6); color: #FFFFFF; }
+
+        /* 爆炸报警专属覆盖层 (保持 Z-index 略低，在主视窗上) */
+        #toast-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 5, 5, 0.75); backdrop-filter: blur(12px);
+            z-index: 90; display: flex; justify-content: center; align-items: center;
+            opacity: 0; transition: opacity 0.5s ease; pointer-events: none;
+        }
+        #toast-overlay.active { opacity: 1; pointer-events: auto; }
+
+        .toast-modal {
+            width: 760px; background: rgba(26, 35, 126, 0.95); border: 2px solid #2A4B9A;
+            border-top: 8px solid #FF5252; padding: 64px 56px; box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+            transform: translateY(20px) scale(0.95); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+        }
+        #toast-overlay.active .toast-modal {
+            transform: translateY(0) scale(1);
+            animation: slam-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards;
+        }
+
+        .toast-fail {
+            border-color: #FF5252;
+            background: linear-gradient(135deg, rgba(233, 30, 99, 0.2), rgba(26, 35, 126, 0.95)); /* 洋红到深海蓝过渡 */
+            box-shadow: 0 0 80px rgba(255, 82, 82, 0.6), inset 0 0 60px rgba(255, 82, 82, 0.3);
+        }
+
+        .toast-header {
+            font-size: 56px; font-weight: 900; line-height: 1.1; margin-bottom: 20px;
+            text-transform: uppercase; letter-spacing: 2px; font-family: 'Inter', sans-serif;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            color: #FF5252;
+            background: linear-gradient(to bottom, #FFFFFF, #FF5252);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        
+        .toast-body { font-size: 20px; font-weight: 600; opacity: 0.9; color: #E0F7FA; line-height: 1.6; }
+        
+        /* 紧急修复按钮定制样式 */
+        .btn-emergency {
+            background-color: #FF5252; color: #FFFFFF; font-weight: 800; padding: 16px 48px;
+            font-size: 20px; border-radius: 9999px; border: 2px solid #F48FB1; /* 泡泡糖粉边框 */
+            transition: all 0.2s; box-shadow: 0 10px 25px rgba(255, 82, 82, 0.5);
+            display: flex; align-items: center; gap: 12px; margin: 0 auto; margin-top: 20px;
+        }
+        .btn-emergency:hover { transform: scale(1.05); background-color: #E91E63; border-color: #FFFFFF; }
+
+        @keyframes slam-shake {
+            0% { transform: scale(2); opacity: 0; }
+            40% { transform: scale(1); opacity: 1; }
+            50% { transform: rotate(-3deg); }
+            60% { transform: rotate(3deg); }
+            70% { transform: rotate(-2deg); }
+            80% { transform: rotate(2deg); }
+            100% { transform: rotate(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="stage">
+        <!-- A区：品牌 -->
+        <div id="brand-zone">
+            <h1>贮箱实验室</h1>
+            <div class="subtitle">结构效率与应力场模拟 //</div>
+        </div>
+
+        <!-- B区：导航 -->
+        <div id="nav-zone">
+            <button class="mode-btn active" onclick="switchAppMode('observation')" id="mode-obs">
+                <span>👁️</span> 观察模式
+            </button>
+            <button class="mode-btn" onclick="switchAppMode('game')" id="mode-game">
+                <span>🎮</span> 游戏模式
+            </button>
+            
+            <div style="height: 1px; background: rgba(42, 75, 154, 0.8); margin: 8px 0;"></div>
+            <button class="mode-btn" onclick="showBriefing()">
+                <span>ℹ️</span> 任务说明
+            </button>
+        </div>
+
+        <!-- 独立的左下角监控区：宽180px, 高300px, 左侧48px, 底部220px (完美平齐C区底部) -->
+        <div id="metrics-zone" style="position: absolute; bottom: 220px; left: 48px; z-index: 50;">
+            <div id="panel-metrics" class="glass-panel flex flex-col" style="justify-content: space-between;">
+                <!-- 标头：动态显示当前型号，字体改为 18px -->
+                <div class="font-bold pb-2 flex justify-between items-center" style="border-bottom: 1px solid rgba(42, 75, 154, 0.6); flex-shrink: 0;">
+                    <span id="panel-title" style="font-size: 18px; color: #FF5252; letter-spacing: 1px;">平底型</span>
+                    <span style="color: rgba(224, 247, 250, 0.6); font-size: 10px; letter-spacing: 1px;">LIVE</span>
+                </div>
+                
+                <!-- 进度条区：取消 flex-grow，缩小 gap 让排版更紧凑 -->
+                <div class="flex flex-col gap-3 mt-3 mb-4" style="flex-shrink: 0;">
+                    <div>
+                        <div class="flex justify-between mb-1 text-xs font-bold">
+                            <span style="color: rgba(224, 247, 250, 0.8);">安全系数</span>
+                            <span id="safetyVal" class="font-mono text-sm" style="color: #FF5252;">10%</span>
+                        </div>
+                        <div class="w-full h-2 border" style="background-color: #050505; border-color: #2A4B9A;">
+                            <div id="safetyBar" class="h-full transition-all duration-300" style="width: 10%; background-color: #FF5252;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-1 text-xs font-bold">
+                            <span style="color: rgba(224, 247, 250, 0.8);">燃料容量</span>
+                            <span id="volumeVal" class="font-mono text-sm" style="color: #00AEEF;">100%</span>
+                        </div>
+                        <div class="w-full h-2 border" style="background-color: #050505; border-color: #2A4B9A;">
+                            <div id="volumeBar" class="h-full transition-all duration-300" style="width: 100%; background-color: #00AEEF;"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 描述文字区域：移除内部边框背景，仅保留纯文字排版 -->
+                <div class="mt-auto pt-3 border-t flex-grow flex items-start" style="border-color: rgba(42, 75, 154, 0.6);">
+                    <div id="dynamic-desc" style="font-size: 14px; color: #E0F7FA; opacity: 0.95; line-height: 1.6; font-family: 'Inter', sans-serif; font-weight: 500;">
+                        最大化容积利用率，但底部承受极大应力。
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- C区：主视窗 (3D 核心) -->
+        <div id="viewport-zone">
+            <!-- 边角修饰 -->
+            <div class="corner-marker tl"></div><div class="corner-marker tr"></div>
+            <div class="corner-marker bl"></div><div class="corner-marker br"></div>
+
+            <!-- C区内嵌：爆炸警报 -->
+            <div id="toast-overlay">
+                <div class="toast-modal toast-fail">
+                    <div class="toast-header">结构性失效</div>
+                    <div class="toast-body">
+                        <p class="mb-8">
+                            <strong class="text-white text-xl">平底结构</strong> 无法承受满载压力。<br>
+                            底部焊缝已完全破裂，燃料泄漏。
+                        </p>
+                        <button onclick="resetSystem()" class="btn-emergency">
+                            <span>🔧</span>
+                            启动紧急修复
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="canvas-container" class="w-full h-full relative">
+                <!-- C区内嵌：状态信息区 -->
+                <div id="status-zone">
+                    <div class="status-panel-top">
+                        <div id="status-main" class="status-main"><span class="status-dot danger"></span>危险：压力过高</div>
+                        <div id="status-sub" class="status-sub">操作指引：结构面临失效风险，请增加贮箱曲率</div>
+                    </div>
+                </div>
+
+                <!-- 顶部警告标签 (缩小版HUD) -->
+                <div class="absolute top-6 right-6 z-10 text-right pointer-events-none" style="display:none;">
+                    <div id="statusBox" class="status-box danger">
+                        警告：应力临界
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- D区：工作区控制台 -->
+        <div id="control-deck">
+            <div class="control-panel">
+                
+                <!-- 1. 左侧组：自动注油 + 形状预设 -->
+                <div class="left-controls" id="left-controls">
+                    <div class="circle-btn" id="autoFillBtn" onclick="autoFill()">
+                        <span class="icon" id="autoFillIcon">▶</span>
+                        <span id="autoFillText">自动注油</span>
+                    </div>
+
+                    <div class="circle-btn toggle-active" id="btn-flat" onclick="setMode('flat')">
+                        <span class="icon">🔲</span>
+                        <span>平底</span>
+                    </div>
+                    
+                    <div class="circle-btn" id="btn-ellipsoid" onclick="setMode('ellipsoid')">
+                        <span class="icon">🥚</span>
+                        <span>椭球</span>
+                    </div>
+                    
+                    <div class="circle-btn" id="btn-hemisphere" onclick="setMode('hemisphere')">
+                        <span class="icon">⚪</span>
+                        <span>球形</span>
+                    </div>
+                </div>
+
+                <!-- 2. 中间：极浅弧线双轨仪表盘 -->
+                <div class="slider-group">
+                    <div class="arc-container" id="arc-sliders">
+                        <!-- 仅在此处保留绘制滑杆需要的内联 SVG -->
+                        <svg viewBox="0 0 600 160">
+                            <!-- 外圈：形状微调 -->
+                            <circle cx="300" cy="600" r="600" class="rs-bg" transform="rotate(225 300 600)" stroke-dasharray="942.48 4000" />
+                            <circle cx="300" cy="600" r="600" class="rs-fill-shape" id="fill-shape" />
+                            <circle cx="300" cy="600" r="600" class="rs-hit" id="hit-shape" transform="rotate(225 300 600)" stroke-dasharray="942.48 4000" />
+
+                            <!-- 内圈：燃料液位 -->
+                            <circle cx="300" cy="600" r="540" class="rs-bg" transform="rotate(225 300 600)" stroke-dasharray="848.23 4000" />
+                            <circle cx="300" cy="600" r="540" class="rs-fill-fuel" id="fill-fuel" />
+                            <circle cx="300" cy="600" r="540" class="rs-hit" id="hit-fuel" transform="rotate(225 300 600)" stroke-dasharray="848.23 4000" />
+
+                            <!-- 刻度装饰点缀 -->
+                            <g transform="translate(300, 600)">
+                                <circle cx="0" cy="-600" r="3" fill="#050505" stroke="#00838F" stroke-width="1.5" transform="rotate(-27.71)" />
+                                <circle cx="0" cy="-600" r="3" fill="#050505" stroke="#00838F" stroke-width="1.5" />
+                                <circle cx="0" cy="-600" r="3" fill="#050505" stroke="#00838F" stroke-width="1.5" transform="rotate(27.71)" />
+                                <circle cx="0" cy="-540" r="3" fill="#050505" stroke="#00838F" stroke-width="1.5" transform="rotate(-27.45)" />
+                                <circle cx="0" cy="-540" r="3" fill="#050505" stroke="#00838F" stroke-width="1.5" />
+                                <circle cx="0" cy="-540" r="3" fill="#050505" stroke="#00838F" stroke-width="1.5" transform="rotate(27.45)" />
+                            </g>
+                        </svg>
+
+                        <!-- 指示器准星滑块 -->
+                        <div class="rs-thumb" id="thumb-shape"></div>
+                        <div class="rs-thumb" id="thumb-fuel"></div>
+
+                        <!-- 居中数据标签 -->
+                        <div class="arc-labels">
+                            <div class="c-label" style="color:#FFFFFF" id="label-shape-title">形状<span id="val-shape" style="color:#FFFFFF">05%</span></div>
+                            <div class="c-label" style="color:#00AEEF">液位<span id="val-fuel" style="color:#00AEEF">00%</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 右侧：功能按钮 -->
+                <div class="right-controls">
+                    <div class="circle-btn danger" onclick="resetSystem()" title="重置系统">
+                        <span class="icon">↺</span>
+                        <span>重置</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- E区：任务简报弹窗 -->
+        <div id="mission-briefing" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-title">任务简报：贮箱应力场与结构效率</div>
+                <div class="modal-desc">指挥官，欢迎来到泰坦实验室！火箭贮箱底部的几何构型，是决定载荷能力与结构安全的生死线。</div>
+                <div class="modal-desc"><strong>平底构型</strong>空间利用率极高，但底部承受极大应力，满载时极易引发结构性失效；而<strong>球形构型</strong>虽坚不可摧，却会严重挤占有效容积。</div>
+                <div class="modal-desc">你的任务是调节形状微调滑块，在两者之间找到完美的<strong>工业平衡点</strong>（椭球形）。如果你在游戏模式下强行让平底贮箱满载，你将亲眼见证焊缝破裂引发的灾难！</div>
+                <button class="modal-btn" onclick="dismissBriefing()">[ 接收任务 / 开始监控 ]</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 任务说明弹窗控制
+        window.dismissBriefing = function() {
+            document.getElementById('mission-briefing').classList.add('hidden');
+        };
+        window.showBriefing = function() {
+            document.getElementById('mission-briefing').classList.remove('hidden');
+        };
+
+        // --- 屏幕适配 ---
+        function resizeStage() {
+            const stage = document.getElementById('stage');
+            const targetW = 1920, targetH = 1080;
+            const scale = Math.min(window.innerWidth / targetW, window.innerHeight / targetH);
+            stage.style.transform = `scale(${scale})`;
+        }
+        window.addEventListener('resize', resizeStage);
+        resizeStage();
+
+        let appMode = 'observation'; 
+        let isExploded = false;
+
+        // 【重构色彩表：完美对照 PDF 规范】
+        const COLORS = {
+            red: '#FF5252',     // 珊瑚红 Coral Red (危险/警示)
+            green: '#00E676',   // 化学绿 Chemical Green (平衡/最佳)
+            blue: '#00AEEF',    // 电光青 Electric Cyan (安全/流体)
+            yellow: '#FFC107',  // 日落黄 Sunset Gold (过渡/警告)
+            white: '#FFFFFF',   // 纯白
+            ice: '#E0F7FA'      // 薄荷冰蓝 Mint Ice
+        };
+        let currentColor = COLORS.red;
+
+        // --- 极浅弧线滑杆交互逻辑 ---
+        function initArcSlider(hitId, fillId, thumbId, valId, radius, onUpdate, isCurvature = false) {
+            const hitEl = document.getElementById(hitId);
+            const fillEl = document.getElementById(fillId);
+            const thumbEl = document.getElementById(thumbId);
+            const valText = document.getElementById(valId);
+            const container = document.getElementById('arc-sliders');
+
+            let currentValue = 0;
+            let isDragging = false;
+
+            const trackStartAngleDeg = 240;
+            const trackSweepAngleDeg = 60;
+            const offsetPx = 24;
+            const offsetDeg = (offsetPx / radius) * (180 / Math.PI);
+            const startAngleDeg = trackStartAngleDeg + offsetDeg;
+            const sweepAngleDeg = trackSweepAngleDeg - 2 * offsetDeg;
+            const pathLength = (sweepAngleDeg / 360) * 2 * Math.PI * radius;
+
+            fillEl.setAttribute('transform', `rotate(${startAngleDeg} 300 600)`);
+            fillEl.setAttribute('stroke-dasharray', `${pathLength} 4000`);
+
+            function updateUI(val, isUserInput = false) {
+                currentValue = Math.max(0, Math.min(1, val));
+                fillEl.style.strokeDashoffset = pathLength * (1 - currentValue);
+
+                let currentAngleDeg = startAngleDeg + currentValue * sweepAngleDeg;
+                let currentAngleRad = currentAngleDeg * Math.PI / 180;
+                let tx = 300 + radius * Math.cos(currentAngleRad);
+                let ty = 600 + radius * Math.sin(currentAngleRad);
+
+                thumbEl.style.left = `${(tx / 600) * 100}%`;
+                thumbEl.style.top = `${(ty / 160) * 100}%`;
+                
+                if (isCurvature) {
+                    valText.innerText = Math.round((0.05 + currentValue * 0.95) * 100) + '%';
+                } else {
+                    valText.innerText = Math.round(currentValue * 100) + '%';
+                }
+
+                if (isUserInput && onUpdate) onUpdate(currentValue);
+            }
+
+            function handlePointer(e) {
+                if (!isDragging && e.type !== 'pointerdown') return;
+                const rect = container.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + (600 / 160) * rect.height;
+
+                let dx = e.clientX - cx;
+                let dy = e.clientY - cy;
+                let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+                if (angle < 0) angle += 360; 
+
+                let val = (angle - startAngleDeg) / sweepAngleDeg;
+                if (val < -0.1) val = 0; 
+                if (val > 1.1) val = 1;
+
+                updateUI(val, true);
+            }
+
+            hitEl.addEventListener('pointerdown', (e) => {
+                if(container.classList.contains('locked')) return;
+                isDragging = true;
+                hitEl.setPointerCapture(e.pointerId);
+                fillEl.style.transition = 'none';
+                thumbEl.style.transition = 'none';
+                
+                // 用户开始拖拽时，移除呼吸光晕
+                thumbEl.classList.remove('prompt-glow');
+                
+                handlePointer(e);
+            });
+            hitEl.addEventListener('pointermove', handlePointer);
+            hitEl.addEventListener('pointerup', (e) => {
+                isDragging = false;
+                hitEl.releasePointerCapture(e.pointerId);
+                fillEl.style.transition = 'stroke-dashoffset 0.1s linear';
+                thumbEl.style.transition = 'left 0.1s linear, top 0.1s linear';
+            });
+
+            updateUI(0);
+            return {
+                setValue: (val) => updateUI(val, false),
+                getValue: () => currentValue,
+                get isDragging() { return isDragging; }
+            };
+        }
+
+        let sliderCurvatureUI, sliderFuelUI;
+
+        window.switchAppMode = (mode) => {
+            appMode = mode;
+            document.getElementById('mode-obs').classList.toggle('active', mode === 'observation');
+            document.getElementById('mode-game').classList.toggle('active', mode === 'game');
+
+            const leftControls = document.getElementById('left-controls');
+            const btns = leftControls.querySelectorAll('.circle-btn');
+            const autoBtn = document.getElementById('autoFillBtn');
+            const arcSliders = document.getElementById('arc-sliders');
+            
+            const thumbShape = document.getElementById('thumb-shape');
+            const thumbFuel = document.getElementById('thumb-fuel');
+
+            if (mode === 'observation') {
+                btns.forEach(b => b.classList.remove('locked', 'prompt-glow'));
+                arcSliders.classList.add('locked'); // 观察模式锁定手动滑杆
+                
+                // 观察模式：开启自动注油呼吸提示，关闭滑块提示
+                autoBtn.classList.add('prompt-glow');
+                thumbShape.classList.remove('prompt-glow');
+                thumbFuel.classList.remove('prompt-glow');
+
+                if(isExploded) resetSystem();
+            } else {
+                // GAME MODE
+                btns.forEach(b => {
+                    if (b.id !== 'autoFillBtn') b.classList.add('locked');
+                });
+                autoBtn.classList.add('locked');
+                autoBtn.classList.remove('prompt-glow');
+                arcSliders.classList.remove('locked');
+                
+                // 游戏模式：关闭自动注油提示，开启滑块呼吸光晕引导操作
+                thumbShape.classList.add('prompt-glow');
+                thumbFuel.classList.add('prompt-glow');
+
+                if (isAutoFilling) {
+                    isAutoFilling = false;
+                    updateAutoFillButton();
+                }
+
+                isExploded = false;
+                document.getElementById('toast-overlay').classList.remove('active');
+                
+                targetFillLevel = 0.0;
+                fillLevel = 0.0;
+                sliderFuelUI.setValue(0);
+                updateAutoFillButton();
+
+                targetCurvature = 0.05;
+                sliderCurvatureUI.setValue(0);
+                updateDescByValue(targetCurvature);
+
+                controls.reset();
+                camera.position.set(initialCamPos.x, initialCamPos.y, initialCamPos.z);
+                
+                updateStatus();
+            }
+        };
+
+        const container = document.getElementById('canvas-container');
+        const width = 1420;
+        const height = 800;
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+        const initialCamPos = { x: 0, y: 0, z: 24 };
+        camera.position.set(initialCamPos.x, initialCamPos.y, initialCamPos.z);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(width, height);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.localClippingEnabled = true; 
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.minDistance = 10;
+        controls.maxDistance = 40;
+
+        scene.add(new THREE.AmbientLight(0xffffff, 1.2)); 
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0); 
+        dirLight.position.set(15, 10, 10);
+        scene.add(dirLight);
+        // 【色彩替换】补光色：薄荷冰蓝
+        const fillLight = new THREE.DirectionalLight(0xE0F7FA, 1.0);
+        fillLight.position.set(-15, 0, 5);
+        scene.add(fillLight);
+
+        const radius = 3.5;
+        const totalFixedLength = 13.0;
+        const segmentCount = 64;
+
+        const tankGroup = new THREE.Group();
+        scene.add(tankGroup);
+
+        const clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        
+        const tankMat = new THREE.MeshPhysicalMaterial({ 
+            color: 0xFFFFFF, metalness: 0.1, roughness: 0.2, transmission: 0.2, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false 
+        });
+        
+        // 【色彩替换】流体颜色：电光青
+        const liquidMat = new THREE.MeshPhysicalMaterial({ color: 0x00AEEF, metalness: 0.3, roughness: 0.1, transmission: 0.6, transparent: true, opacity: 0.9, side: THREE.DoubleSide, clippingPlanes: [clipPlane], clipShadows: true });
+
+        function createParts(mat, scaleRadius=1.0) {
+            const g = new THREE.Group();
+            const r = radius * scaleRadius;
+            
+            const addWireframe = (mesh, geo) => {
+                const edges = new THREE.EdgesGeometry(geo, 10);
+                // 【色彩替换】线框色：知更鸟蛋蓝
+                const wireMat = new THREE.LineBasicMaterial({ color: 0x4DD0E1, transparent: true, opacity: 0.25 });
+                const wireMesh = new THREE.LineSegments(edges, wireMat);
+                wireMesh.scale.setScalar(1.001);
+                mesh.add(wireMesh);
+            };
+
+            const cylGeo = new THREE.CylinderGeometry(r, r, 1, segmentCount, 1, true);
+            const cyl = new THREE.Mesh(cylGeo, mat);
+            if (mat === tankMat) addWireframe(cyl, cylGeo);
+            g.add(cyl);
+
+            const topGeo = new THREE.SphereGeometry(r, segmentCount, 32, 0, Math.PI*2, 0, Math.PI/2);
+            const top = new THREE.Mesh(topGeo, mat);
+            if (mat === tankMat) addWireframe(top, topGeo);
+            g.add(top);
+
+            const bottomGeo = new THREE.SphereGeometry(r, segmentCount, 32, 0, Math.PI*2, 0, Math.PI/2);
+            const bottom = new THREE.Mesh(bottomGeo, mat);
+            if (mat === tankMat) addWireframe(bottom, bottomGeo);
+            bottom.rotation.x = Math.PI;
+            g.add(bottom);
+
+            return { group: g, top, bottom, cyl };
+        }
+
+        const shell = createParts(tankMat, 1.0);
+        tankGroup.add(shell.group);
+        const liquid = createParts(liquidMat, 0.98); 
+        tankGroup.add(liquid.group);
+
+        const arrowGroup = new THREE.Group();
+        tankGroup.add(arrowGroup);
+        const vectors = [];
+        const vectorCount = 60;
+        const arrowHeadGeo = new THREE.ConeGeometry(0.12, 0.4, 8);
+        arrowHeadGeo.translate(0, 0.8, 0);
+        const arrowShaftGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.8, 6);
+        arrowShaftGeo.translate(0, 0.4, 0);
+
+        for(let i=0; i<vectorCount; i++) {
+            const mesh = new THREE.Group();
+            // 【色彩替换】箭头警告色：珊瑚红
+            const mat = new THREE.MeshBasicMaterial({ color: 0xFF5252, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+            mesh.add(new THREE.Mesh(arrowHeadGeo, mat));
+            mesh.add(new THREE.Mesh(arrowShaftGeo, mat));
+            arrowGroup.add(mesh);
+            const phi = Math.acos(1 - (i/vectorCount)*0.95); 
+            const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+            vectors.push({ mesh: mesh, material: mat, ux: Math.sin(phi)*Math.cos(theta), uy: -Math.cos(phi), uz: Math.sin(phi)*Math.sin(theta) });
+        }
+
+        let curvature = 0.05;
+        let targetCurvature = 0.05;
+        let fillLevel = 0.0;
+        let targetFillLevel = 0.0;
+        let isAutoFilling = false;
+
+        const safetyVal = document.getElementById('safetyVal');
+        const safetyBar = document.getElementById('safetyBar');
+        const volumeVal = document.getElementById('volumeVal');
+        const volumeBar = document.getElementById('volumeBar');
+        const descEl = document.getElementById('dynamic-desc');
+        const autoFillBtn = document.getElementById('autoFillBtn');
+        const btns = { flat: document.getElementById('btn-flat'), ellipsoid: document.getElementById('btn-ellipsoid'), hemisphere: document.getElementById('btn-hemisphere') };
+
+        // 【文案与专属颜色对接】
+        const descData = {
+            flat: { title: "平底型", color: COLORS.red, text: "最大化容积利用率，但底部承受极大应力，需重型加强结构。" },
+            ellipsoid: { title: "椭球型", color: COLORS.green, text: "工业标准方案。在结构重量与燃料容量之间取得最佳平衡。" },
+            hemisphere: { title: "球形", color: COLORS.blue, text: "结构强度最高，材料最省。但严重挤占内部空间，降低载油量。" }
+        };
+
+        function updateDescByValue(val) {
+            let mode = 'ellipsoid';
+            if (val < 0.2) mode = 'flat';
+            if (val > 0.9) mode = 'hemisphere';
+            const data = descData[mode];
+            
+            // 更新底部文字
+            descEl.innerHTML = data.text;
+            
+            // 更新顶部面板标题 与 整个监控面板的顶部粗边框颜色
+            const panelTitle = document.getElementById('panel-title');
+            const panelMetrics = document.getElementById('panel-metrics');
+            if (panelTitle) {
+                panelTitle.innerText = data.title;
+                panelTitle.style.color = data.color;
+            }
+            if (panelMetrics) {
+                panelMetrics.style.borderTopColor = data.color;
+            }
+
+            // 清除所有形状按钮的激活态
+            Object.values(btns).forEach(b => b.classList.remove('toggle-active'));
+            
+            // 添加激活态。如果是在游戏模式中，因为配置了 .locked.toggle-active 恢复全彩，所以被锁定的按钮也会完美亮起！
+            btns[mode].classList.add('toggle-active');
+        }
+
+        window.setMode = (mode) => {
+            if (appMode === 'game') return; 
+            Object.values(btns).forEach(b => b.classList.remove('toggle-active'));
+            btns[mode].classList.add('toggle-active');
+            const data = descData[mode];
+            
+            // 同步更新描述、标题 与 整个面板顶部粗边框
+            descEl.innerHTML = data.text;
+            const panelTitle = document.getElementById('panel-title');
+            const panelMetrics = document.getElementById('panel-metrics');
+            if (panelTitle) {
+                panelTitle.innerText = data.title;
+                panelTitle.style.color = data.color;
+            }
+            if (panelMetrics) {
+                panelMetrics.style.borderTopColor = data.color;
+            }
+
+            if(mode === 'flat') targetCurvature = 0.05;
+            else if(mode === 'ellipsoid') targetCurvature = 0.707;
+            else targetCurvature = 1.0;
+            updateStatus();
+        };
+
+        function updateAutoFillButton() {
+            const iconEl = document.getElementById('autoFillIcon');
+            const textEl = document.getElementById('autoFillText');
+            const arcSliders = document.getElementById('arc-sliders');
+
+            if (isAutoFilling) {
+                autoFillBtn.classList.add('warning', 'toggle-active');
+                autoFillBtn.classList.remove('prompt-glow'); // 运行中移除提示光晕
+                iconEl.innerText = '⏸';
+                textEl.innerText = '暂停';
+                if (arcSliders) arcSliders.classList.add('auto-filling-active'); // 使滑块区恢复彩色
+            } else {
+                autoFillBtn.classList.remove('warning', 'toggle-active');
+                if (appMode === 'observation') autoFillBtn.classList.add('prompt-glow'); // 暂停或停止时恢复提示
+                iconEl.innerText = '▶';
+                textEl.innerText = '自动注油';
+                if (arcSliders) arcSliders.classList.remove('auto-filling-active'); // 恢复灰色锁定态
+            }
+        }
+
+        window.autoFill = () => {
+            if (appMode === 'game') return; 
+            if (isAutoFilling) {
+                isAutoFilling = false;
+                targetFillLevel = fillLevel;
+            } else {
+                if(fillLevel >= 0.99) fillLevel = 0.0;
+                isAutoFilling = true;
+                targetFillLevel = 1.0;
+            }
+            updateAutoFillButton();
+        };
+
+        function triggerExplosion() {
+            isExploded = true;
+            document.getElementById('toast-overlay').classList.add('active');
+        }
+
+        window.resetSystem = () => {
+            isExploded = false;
+            document.getElementById('toast-overlay').classList.remove('active');
+            
+            isAutoFilling = false;
+            targetFillLevel = 0.0;
+            fillLevel = 0.0;
+            updateAutoFillButton();
+            
+            controls.reset();
+            camera.position.set(initialCamPos.x, initialCamPos.y, initialCamPos.z);
+            
+            if (appMode === 'observation') {
+                targetCurvature = 0.05;
+                setMode('flat'); 
+                switchAppMode('observation'); 
+            } else {
+                switchAppMode('game');
+            }
+            updateStatus();
+        };
+
+        function updateStatus() {
+            let label = "危险：压力过高";
+            let subLabel = "操作指引：结构面临失效风险，请增加贮箱曲率";
+            let dotClass = "danger";
+            currentColor = COLORS.red;
+
+            if(targetCurvature > 0.6) { 
+                label = "最佳平衡"; 
+                subLabel = "操作指引：工业标准构型，重量与容量取得完美折中";
+                dotClass = "optimal";
+                currentColor = COLORS.green;
+            }
+            if(targetCurvature > 0.9) { 
+                label = "容量过低"; 
+                subLabel = "操作指引：应力极佳，但严重挤占内部有效载荷空间";
+                dotClass = "safe";
+                currentColor = COLORS.blue;
+            }
+            
+            const mainEl = document.getElementById('status-main');
+            const subEl = document.getElementById('status-sub');
+            const boxEl = document.getElementById('statusBox');
+            
+            mainEl.innerHTML = `<span class="status-dot ${dotClass}"></span>${label}`;
+            mainEl.style.color = currentColor;
+            subEl.innerText = subLabel;
+            
+            // HUD小标签
+            if(boxEl) {
+                boxEl.className = `status-box ${dotClass}`;
+                boxEl.innerText = label;
+            }
+            
+            // 同步外弧线颜色
+            document.getElementById('fill-shape').style.stroke = currentColor;
+            document.getElementById('label-shape-title').style.color = currentColor;
+            document.getElementById('val-shape').style.color = currentColor;
+        }
+
+        function updateDashboard(curv) {
+            let safety;
+            if (curv < 0.7) safety = 10 + (curv - 0.05) / 0.65 * 80;
+            else safety = 90 + (curv - 0.7) / 0.3 * 10;
+            if(safety > 100) safety = 100; if(safety < 10) safety = 10;
+            
+            safetyVal.innerText = Math.round(safety) + "%";
+            
+            // 【色彩替换】高度统一当前逻辑的全局色彩
+            safetyBar.style.backgroundColor = currentColor;
+            safetyVal.style.color = currentColor;
+            safetyBar.style.width = safety + "%";
+
+            const d = radius * curv;
+            const volFactor = (totalFixedLength - 0.667 * d) / totalFixedLength; 
+            const volPct = volFactor * 100;
+            volumeVal.innerText = Math.round(volPct) + "%";
+            volumeBar.style.width = volPct + "%";
+        }
+
+        // 初始化弧形滑杆
+        sliderCurvatureUI = initArcSlider('hit-shape', 'fill-shape', 'thumb-shape', 'val-shape', 600, (val) => {
+            targetCurvature = 0.05 + val * 0.95;
+            updateStatus();
+            updateDescByValue(targetCurvature);
+        }, true);
+
+        sliderFuelUI = initArcSlider('hit-fuel', 'fill-fuel', 'thumb-fuel', 'val-fuel', 540, (val) => {
+            targetFillLevel = val;
+            if (appMode === 'observation') {
+                isAutoFilling = false;
+                updateAutoFillButton();
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            if (!isExploded) {
+                if (appMode === 'game') {
+                    const isFlat = Math.abs(targetCurvature - 0.05) < 0.005; 
+                    const isFull = fillLevel >= 0.99;
+                    if (isFlat && isFull) triggerExplosion();
+                }
+
+                curvature += (targetCurvature - curvature) * 0.1;
+                
+                if (isAutoFilling) {
+                     fillLevel += 0.005;
+                     if(fillLevel >= 1) { 
+                         fillLevel = 1; isAutoFilling = false; updateAutoFillButton();
+                     }
+                } else if (appMode === 'observation' && !isAutoFilling) {
+                     fillLevel += (targetFillLevel - fillLevel) * 0.2;
+                } else {
+                     fillLevel = targetFillLevel;
+                }
+                
+                // 同步外部变化到滑杆 UI
+                if (!sliderCurvatureUI.isDragging) {
+                    sliderCurvatureUI.setValue((curvature - 0.05) / 0.95);
+                }
+                if (!sliderFuelUI.isDragging) {
+                    sliderFuelUI.setValue(fillLevel);
+                }
+
+                updateDashboard(curvature);
+                const domeDepth = radius * curvature;
+                const currentCylHeight = Math.max(0.1, totalFixedLength - 2 * domeDepth);
+                
+                shell.cyl.scale.set(1, currentCylHeight, 1); 
+                shell.top.scale.set(1, curvature, 1);
+                shell.top.position.y = currentCylHeight / 2;
+                shell.bottom.scale.set(1, curvature, 1);
+                shell.bottom.position.y = -currentCylHeight / 2;
+                
+                liquid.cyl.scale.set(1, currentCylHeight, 1);
+                liquid.top.scale.set(1, curvature, 1);
+                liquid.top.position.y = currentCylHeight / 2;
+                liquid.bottom.scale.set(1, curvature, 1);
+                liquid.bottom.position.y = -currentCylHeight / 2;
+                
+                const tankBottomY = -totalFixedLength / 2;
+                const currentLiquidY = tankBottomY + (totalFixedLength * fillLevel);
+                clipPlane.normal.set(0, -1, 0);
+                clipPlane.constant = currentLiquidY;
+                
+                updateArrows(currentLiquidY, -currentCylHeight/2, curvature, domeDepth);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function updateArrows(liquidY, centerBottomY, curv, depth) {
+            vectors.forEach(v => {
+                const localY = v.uy * depth;
+                const worldY = centerBottomY + localY;
+                v.mesh.position.set(v.ux * radius, worldY, v.uz * radius);
+                let h = liquidY - worldY;
+                if (h < 0.01) h = 0; 
+                const scale = h * 0.25; 
+                v.mesh.scale.setScalar(scale);
+                
+                const target = new THREE.Vector3();
+                let ny_dir = -1; // 记录垂直法线分量，默认为 -1 (垂直向下)
+
+                if (curv < 0.05) {
+                    target.set(v.mesh.position.x, v.mesh.position.y - 1, v.mesh.position.z);
+                } else {
+                    const nx = v.ux; 
+                    const ny = v.uy / Math.max(0.1, curv); 
+                    const nz = v.uz;
+                    const norm = new THREE.Vector3(nx, ny, nz).normalize();
+                    ny_dir = norm.y; // 提取 Y 轴的受力方向
+                    target.copy(v.mesh.position).add(norm);
+                }
+                
+                v.mesh.lookAt(target); 
+                v.mesh.rotateX(Math.PI / 2);
+
+                // 核心视觉调整：根据受力方向动态计算透明度
+                // 越垂直向下 (ny_dir 接近 -1)，透明度越接近 0.9 (保持原色)
+                // 越靠近圆柱侧壁 (ny_dir 接近 0)，透明度衰减至 0 (完全透明)
+                const targetOpacity = Math.pow(Math.abs(ny_dir), 2.5) * 0.9;
+                v.material.opacity = targetOpacity;
+                
+                // 优化渲染性能：太小或太透明的箭头直接隐藏
+                v.mesh.visible = (scale > 0.05) && (targetOpacity > 0.02);
+            });
+        }
+
+        setMode('flat'); 
+        switchAppMode('observation');
+        animate();
+    </script>
+</body>
+</html>
